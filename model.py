@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from cost_functions import *
 from tqdm import tqdm
 import pandas as pd
+import pickle
 
 
 
@@ -60,6 +61,18 @@ class HardtAlgo(TrainModel):
                     min_err_si = err_si
                     self.min_si = s_i
                 t.update(1)
+
+    def dump(self, path_to_dump):
+        with open(path_to_dump, 'wb') as output_file:
+            pickle.dump(self, output_file, pickle.HIGHEST_PROTOCOL)
+
+    @classmethod
+    def load_model(cls, model_path):
+        with open(model_path, 'rb') as model_file:
+            return pickle.load(model_file)
+
+
+
 
 
 

@@ -11,7 +11,9 @@ from utills_and_consts import *
 import matplotlib.pyplot as plt
 
 
-def visualize_projected_changed_df(before_change_df_path, after_change_df_path, features_to_project, title, label='LoanStatus', num_point_to_plot=100):
+def visualize_projected_changed_df(before_change_df_path, after_change_df, features_to_project, title, label='LoanStatus',
+                                   num_point_to_plot=100, base_dir_path: str = 'result/changed_samples_by_gaming/2D_projection_images',
+                                   to_save=True):
     def apply_transform_for_2D(df: pd.DataFrame):
         transform_matrix = np.array([[1.5, 0], [1.5, 0], [2, 0], [0, -5], [0, -1], [1, 1]])
         return df @ transform_matrix
@@ -21,7 +23,8 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df_path, 
     fig, (ax_before, ax_after) = plt.subplots(1, 2)
     df_before = pd.read_csv(before_change_df_path)
     df_before_loan_status, df_before = df_before[label], df_before[features_to_project]
-    df_after = pd.read_csv(after_change_df_path)[features_to_project]
+    # df_after = pd.read_csv(after_change_df_path)[features_to_project]
+    df_after = after_change_df[features_to_project]
     fig.suptitle(title)
     ax_before.set_title('before')
     ax_after.set_title('after')
@@ -55,6 +58,10 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df_path, 
                   zorder=0, head_length=0.1, head_width=0.2)
         if i > num_point_to_plot:
             break
+    plt.title(title)
+    if to_save:
+        saving_path = base_dir_path + '/' + title + '.png'
+        plt.savefig(saving_path)
     plt.show()
 
 
@@ -97,7 +104,8 @@ def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_pat
     with tqdm(total=len(orig_df)) as t:
         for (index, ex), label in zip(orig_df[feature_list].iterrows(), orig_df[target_label]):
             x = np.array(ex)
-            if label == -1:
+            #if label == -1: #this maybe should be f here..
+            if f.predict(x.reshape(1, -1))[0] == -1:
                 z = cost_func.maximize_features_against_binary_model(x, f)
                 modify_data.loc[index] = z
             t.update(1)
@@ -106,6 +114,7 @@ def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_pat
 
     if out_path is not None:
         modify_data.to_csv(out_path)
+    return modify_data
 
 
 def create_strategic_data_sets_using_known_clf(retrain_model_loan_return=True):
@@ -116,23 +125,15 @@ def create_strategic_data_sets_using_known_clf(retrain_model_loan_return=True):
         train_loan_return_model(features_to_use, binary_trained_model_path)
 
     weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a_vec)
-    strategic_modify_using_known_clf(fake_test_path, binary_trained_model_path, features_to_use,
+    modify_full_information_test = strategic_modify_using_known_clf(fake_test_path, binary_trained_model_path, features_to_use,
                                      weighted_linear_cost, modify_full_information_test_fake_path)
-    visualize_projected_changed_df(fake_test_path, modify_full_information_test_fake_path, features_to_use, 'fake test')
+    visualize_projected_changed_df(fake_test_path, modify_full_information_test, features_to_use, 'fake test')
 
     acc_fake_test_modify = evaluate_on_modify(test_path=modify_full_information_test_fake_path,
                                               trained_model_path=binary_trained_model_path,
                                               feature_list_to_predict=six_most_significant_features)
     print(f'the accuracy on the test set when it trained on not modify train {acc_fake_test_modify}')
     weighted_linear_cost.get_statistic_on_num_change()
-
-
-    weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a_vec)
-    strategic_modify_using_known_clf(fake_train_path, binary_trained_model_path, features_to_use,
-                          weighted_linear_cost, modify_full_information_train_fake_path)
-    visualize_projected_changed_df(fake_train_path, modify_full_information_train_fake_path, features_to_use, 'fake train')
-
-
     weighted_linear_cost.get_statistic_on_num_change()
 
 
@@ -141,9 +142,13 @@ def create_strategic_data_sets_using_known_clf(retrain_model_loan_return=True):
 
 
 def for_each_member_row(row_member, friends_and_member_df: pd.DataFrame, features_to_learn: list,
-                        cost_func: CostFunction, target_label: str):
+                        cost_func: CostFunction, target_label: str, filter_by_creation_date=False):
     row_listing_creation_date = row_member['ListingCreationDate']
-    rows_to_learn_df = friends_and_member_df[friends_and_member_df['ListingCreationDate'] < row_listing_creation_date]
+    if filter_by_creation_date:
+        rows_to_learn_df = friends_and_member_df[friends_and_member_df['ListingCreationDate'] < row_listing_creation_date]
+    else:
+        rows_to_learn_df = friends_and_member_df
+
     num_changed = 0
     if len(rows_to_learn_df) > 0 and len(rows_to_learn_df[target_label].value_counts()) == 2:
         num_changed += 1
@@ -157,28 +162,67 @@ def for_each_member_row(row_member, friends_and_member_df: pd.DataFrame, feature
     return row_member, num_changed
 
 
-def strategic_modify_learn_from_friends(orig_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,
-                                        member_dict: dict, out_path: str = None):
+
+def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,
+                                        member_dict: dict, out_path: str = None, title_for_visualization: str = None):
     orig_df = pd.read_csv(orig_df_path)
-    modify_data_list = list()
+    friends_df = pd.read_csv(sample_from_df_path)
+    modify_data = orig_df[feature_to_learn_list].copy()
+    with tqdm(total=len(orig_df)) as t:
+        for (index, ex), member_key in zip(orig_df[feature_to_learn_list].iterrows(), orig_df['MemberKey']):
+            member_friend_keys = set(friends_df.iloc[member_dict[member_key]["friends with credit data"], :]['MemberKey'])
 
-    common_members = set(member_dict.keys()).intersection(set(orig_df['MemberKey']))
-    num_changed = 0
-    with tqdm(total=len(common_members)) as t:
-        for member_key in common_members:
-            member_friend = member_dict[member_key]["friends with credit data"]
-            member_df = orig_df[orig_df['MemberKey'] == member_key]
-            friends_and_member_df = orig_df[orig_df['MemberKey'].isin(set(member_friend).union({member_key}))]
-            for i, (index, row) in enumerate(member_df.iterrows()):
-                if row[target_label] == -1:
-                    modify_row, current_num_changed = for_each_member_row(row, friends_and_member_df, feature_to_learn_list, cost_func,
-                                                     target_label)
-                    num_changed += current_num_changed
-                    modify_data_list.append(modify_row)
-                else:
-                    modify_data_list.append(row)
+            friends_and_member_df = friends_df[friends_df['MemberKey'].isin(member_friend_keys)]
+            x = np.array(ex)
+            f = LR(penalty='none').fit(friends_and_member_df[feature_to_learn_list], friends_and_member_df[target_label])
+            if f.predict(x.reshape(1, -1))[0] == -1:
+                z = cost_func.maximize_features_against_binary_model(x, f)
+                modify_data.loc[index] = z
             t.update(1)
+    for col_name in filter(lambda c: c not in modify_data.columns, orig_df.columns):
+        modify_data.insert(len(modify_data.columns), col_name, orig_df[col_name], True)
 
-    new_modify = pd.concat(modify_data_list, axis=1, keys=[s.name for s in modify_data_list]).T
-    new_modify.to_csv(out_path)
-    print(num_changed)
+    cost_func.get_statistic_on_num_change()
+    visualize_projected_changed_df(fake_test_path, modify_data, feature_to_learn_list, title_for_visualization)
+    return modify_data
+
+
+# def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,
+#                                         member_dict: dict, out_path: str = None, title_for_visualization: str = None):
+#     orig_df = pd.read_csv(orig_df_path)
+#     friends_df = pd.read_csv(sample_from_df_path)
+#     modify_data = orig_df[feature_to_learn_list].copy()
+#     f_star = load_sklearn_model(model_loan_returned_path)
+#     num_with_neg_pred, num_changed_to_f_star = 0, 0
+#     num_that_make_f_star_better = 0
+#     num_changed_features = 0
+#     with tqdm(total=len(orig_df)) as t:
+#         for (index, ex), member_key, label in zip(orig_df[feature_to_learn_list].iterrows(), orig_df['MemberKey'], orig_df[target_label]):
+#             member_friend_keys = set(friends_df.iloc[member_dict[member_key]["friends with credit data"], :]['MemberKey'])
+#
+#             friends_and_member_df = friends_df[friends_df['MemberKey'].isin(member_friend_keys)]
+#             x = np.array(ex)
+#             f = LR(penalty='none').fit(friends_and_member_df[feature_to_learn_list], friends_and_member_df[target_label])
+#             if f.predict(x.reshape(1, -1))[0] == -1:
+#                 num_with_neg_pred += 1
+#                 z = cost_func.maximize_features_against_binary_model(x, f)
+#                 if f_star.predict(x.reshape(1, -1))[0] != f_star.predict(z.reshape(1, -1))[0]:
+#                     if label == f_star.predict(z.reshape(1, -1))[0]:
+#                         num_that_make_f_star_better += 1
+#                     num_changed_to_f_star += 1
+#                 if (x != z).any():
+#                     num_changed_features += 1
+#                 modify_data.loc[index] = z
+#             t.update(1)
+#     for col_name in filter(lambda c: c not in modify_data.columns, orig_df.columns):
+#         modify_data.insert(len(modify_data.columns), col_name, orig_df[col_name], True)
+#
+#     print(f'the number that thought that they are neg is: {num_with_neg_pred} and the number that changed f_star is {num_changed_to_f_star}'
+#           f'and number that made f better is {num_that_make_f_star_better} number that changed features is: {num_changed_features}')
+#     cost_func.get_statistic_on_num_change()
+#     visualize_projected_changed_df(fake_test_path, modify_data, feature_to_learn_list, title_for_visualization)
+#     return modify_data
+
+
+
+

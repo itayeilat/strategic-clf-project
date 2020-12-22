@@ -72,7 +72,7 @@ def check_gmm_model(feature_list, orig_train_path, orig_val_path):
 
 
 def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
-                     create_key_features=False, check_gmm=False):
+                     create_key_features=False, check_gmm=False, create_new_help_set=False):
     def get_dist_index(weights_array: np.array):
         return np.random.choice(len(weights_array), fake_data_set_size, p=weights_array)
 
@@ -88,7 +88,7 @@ def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
     orig_data = pd.concat([pd.read_csv(path)[feature_list] for path in path_list_to_data])
 
     np.random.seed(8)
-    gmm_model = GaussianMixture(n_components=8)
+    gmm_model = GaussianMixture(n_components=16)
     gmm_model.fit(orig_data[feature_list])
     new_data_sets_array_list = list()
     gaussian_index_arr = get_dist_index(gmm_model.weights_)
@@ -104,15 +104,19 @@ def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
     fake_data_set.insert(len(fake_data_set.columns), 'LoanStatus', loan_return_status_list, True)
 
     if create_key_features:
+        prefix_key_string = 'fakeHelp' if create_new_help_set else 'fake'
         fake_data_set.insert(len(fake_data_set.columns), 'MemberKey',
-                             ['fakeMem' + str(i) for i in range(fake_data_set_size)], True)
+                             [prefix_key_string + 'Mem' + str(i) for i in range(fake_data_set_size)], True)
         fake_data_set.insert(len(fake_data_set.columns), 'LoanKey',
-                             ['fakeLoan' + str(i) for i in range(fake_data_set_size)], True)
+                             [prefix_key_string + 'Loan' + str(i) for i in range(fake_data_set_size)], True)
 
-    fake_train_df, fake_val_df, fake_test_df = split_df(fake_data_set)
-    fake_train_df.to_csv(fake_train_path)
-    fake_val_df.to_csv(fake_val_path)
-    fake_test_df.to_csv(fake_test_path)
+    if create_new_help_set:
+        fake_data_set.to_csv(fake_set_to_sample_from_path)
+    else:
+        fake_train_df, fake_val_df, fake_test_df = split_df(fake_data_set)
+        fake_train_df.to_csv(fake_train_path)
+        fake_val_df.to_csv(fake_val_path)
+        fake_test_df.to_csv(fake_test_path)
 
 
 def apply_transform_creditgrade_loan_returned(credit_grade):
@@ -121,66 +125,38 @@ def apply_transform_creditgrade_loan_returned(credit_grade):
     return -1 if guss < loan_tresh else 1
 
 
+def sample_all_classes_in_list(friends_df, num_friends,num_class=2, label_name='LoanStatus'):
+    index_friends_list = list()
+    classes_set = set()
+    while len(classes_set) < num_class:
+        index_friends_list = random.sample(range(len(friends_df)), num_friends)
+        classes_set = set(friends_df.iloc[index_friends_list, :][label_name])
+    return index_friends_list
 
 
+def create_member_friends_dict(num_friends, sample_from_df_path, df_to_create_list_friend_path):
+    friends_df = pd.read_csv(sample_from_df_path)
+    df_to_create_list_friend = pd.read_csv(df_to_create_list_friend_path)
+    member_dict = dict()
+
+    for mem_key, data in df_to_create_list_friend.groupby('MemberKey'):
+        index_friends_list = sample_all_classes_in_list(friends_df, num_friends)
+        member_dict[mem_key] = {"friends with credit data": index_friends_list}
 
 
+    return member_dict
 
 
+def main_create_fake_data(create_new_help_set=False):
 
-
-
-
-def main_create_fake_data():
-
-    path_to_CG_model = 'lgb_model_CG.sav'
+    path_to_CG_model = 'models/lgb_model_CG.sav'
     train_model = False
     gmm_feature_list = feature_list_for_pred + ['ListingCreationDate']
     if train_model:
         learn_lgb_model(path_to_CG_model)
     cg_trained_model = load_sklearn_model(path_to_CG_model)
 
-    generate_dataset(gmm_feature_list, cg_trained_model, fake_data_set_size=10000, create_key_features=True, check_gmm=True)
-
-    '''
-    ####### from here shouldnt be in this file..
-    train_loan_return_model(fake_train_path, 'data2/fake_val1.csv', feature_list_for_pred, 'data2/loan_returned_model_LR1.sav')
-
-    a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-    strategic_modify_data(fake_train_path, 'data2/loan_returned_model_LR1.sav', feature_list_for_pred,
-                          WeightedLinearCostFunction(a), modify_fake_train_path)
-    strategic_modify_data(fake_test_path, 'data2/loan_returned_model_LR1.sav', feature_list_for_pred,
-                          WeightedLinearCostFunction(a), modify_fake_test_path)
-
-    acc_fake_test_modify = evaluate_on_modify(train_path=fake_train_path, test_path=modify_fake_test_path,
-                                         model_to_train=LR(penalty='none'),
-                                         feature_list_to_predict=feature_list_for_pred)
-    print(acc_fake_test_modify)
-    acc_train_and_test_modify = evaluate_on_modify(train_path=modify_fake_train_path,
-                                                   test_path=modify_fake_test_path,
-                                                   model_to_train=LR(penalty='none'),
-                                                   feature_list_to_predict=feature_list_for_pred)
-    print(acc_train_and_test_modify)
-
-
-    a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-    algo1 = Algo1(WeightedLinearCostFunction(a))
-
-    test_df = pd.read_csv(fake_test_path)
-    train_df = pd.read_csv(fake_train_path)
-    modify_test_df = pd.read_csv(modify_fake_test_path)
-
-    algo1.fit(train_df[feature_list_for_pred], train_df['LoanStatus'])
-    pred_loan_status = algo1(test_df[feature_list_for_pred])
-
-    acc = np.sum(pred_loan_status == test_df['LoanStatus']) / len(test_df)
-    print(acc)
-
-    pred_loan_status = algo1(modify_test_df[feature_list_for_pred])
-
-    acc = np.sum(pred_loan_status == modify_test_df['LoanStatus']) / len(test_df)
-    print(acc)
-    '''
+    generate_dataset(gmm_feature_list, cg_trained_model, fake_data_set_size=10000, create_key_features=True, check_gmm=True, create_new_help_set=create_new_help_set)
 
 
 
@@ -189,83 +165,6 @@ def main_create_fake_data():
 
 
 
-def modify_real_data():
-    orig_train_path = 'data/train_pre2009.csv'
-    orig_val_path = 'data/val_pre2009.csv'
-    orig_test_path = 'data/test_pre2009.csv'
-    modify_real_train_path = 'data/modify_real_train.csv'
-    modify_real_test_path = 'data/modify_real_test.csv'
-    model_loan_returned_path = 'data/loan_returned_model_LR_real_data.sav'
-    list_to_keep, feature_list_for_pred = get_feature_list_and_keeping_list()
-    train_loan_return_model(orig_train_path, orig_val_path, feature_list_for_pred, model_loan_returned_path)
-
-    a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-
-    strategic_modify_data(orig_train_path, model_loan_returned_path, feature_list_for_pred, WeightedLinearCostFunction(a), modify_real_train_path)
-
-    strategic_modify_data(orig_test_path, model_loan_returned_path, feature_list_for_pred, WeightedLinearCostFunction(a), modify_real_test_path)
-
-    acc_test_modify = evaluate_on_modify(train_path=orig_train_path, test_path=modify_real_test_path,
-                                         model_to_train=LR(penalty='none'),
-                                         feature_list_to_predict=feature_list_for_pred)
-    print(acc_test_modify)
-    acc_train_and_test_modify = evaluate_on_modify(train_path=modify_real_train_path,
-                                                   test_path=modify_real_test_path,
-                                                   model_to_train=LR(penalty='none'),
-                                                   feature_list_to_predict=feature_list_for_pred)
-    print(acc_train_and_test_modify)
-
-    a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-    algo1 = Algo1(WeightedLinearCostFunction(a))
-    test_df = pd.read_csv(orig_test_path)
-    train_df = pd.read_csv(orig_train_path)
-    modify_test_df = pd.read_csv(modify_real_test_path)
-
-
-    algo1.fit(train_df[feature_list_for_pred], train_df['LoanStatus'])
-    pred_loan_status = algo1(test_df[feature_list_for_pred])
-
-    acc = np.sum(pred_loan_status == test_df['LoanStatus']) / len(test_df)
-    print(acc)
-
-    pred_loan_status = algo1(modify_test_df[feature_list_for_pred])
-
-    acc = np.sum(pred_loan_status == modify_test_df['LoanStatus']) / len(modify_test_df)
-    print(acc)
-
-
-
-#from startegic_players import strategic_modify_data
-
-def check_for_now():
-    fake_train_path = 'data2/fake_train1.csv'
-    fake_test_path = 'data2/fake_test1.csv'
-    modify_fake_train_path = 'data2/modify_fake_train1.csv'
-    modify_fake_test_path = 'data2/modify_fake_test1.csv'
-    list_to_keep, feature_list_for_pred = get_feature_list_and_keeping_list()
-    gmm_feature_list = feature_list_for_pred + ['ListingCreationDate']
-    # poly_svr = load_sklearn_model('data2/linear_poly_svr.sav')
-    # generate_dataset(['data2/train_pre2009.csv', 'data2/val_pre2009.csv', 'data2/test_pre2009.csv'], gmm_feature_list,
-    #                  poly_svr, feature_list_for_pred, fake_data_set_size=10000, create_key_features=True,
-    #                  check_gmm=False)
-    # train_loan_return_model(fake_train_path, 'data2/fake_val1.csv', feature_list_for_pred,
-    #                         'data2/loan_returned_model_LR1.sav')
-    #
-    # stratigic_modify_data(fake_train_path, 'data2/loan_returned_model_LR1.sav', feature_list_for_pred,
-    #                       out_path=modify_fake_train_path)
-    # stratigic_modify_data(fake_test_path, 'data2/loan_returned_model_LR1.sav', feature_list_for_pred,
-    #                       out_path=modify_fake_test_path)
-
-
-    a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-    algo1 = Algo1(WeightedLinearCostFunction(a))
-    train_df, test_df = pd.read_csv(fake_train_path), pd.read_csv(modify_fake_test_path)
-    algo1.fit(train_df[feature_list_for_pred], train_df['LoanStatus'])
-    pred_loan_status = algo1(test_df[feature_list_for_pred])
-    # acc = evaluate_with_gaming_algorithm(fake_train_path, modify_fake_test_path, feature_list_for_pred)
-    # print(acc)
-    acc = np.sum(pred_loan_status == test_df['LoanStatus']) / len(test_df)
-    print(acc)
 
 
 

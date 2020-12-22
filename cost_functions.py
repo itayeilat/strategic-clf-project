@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 import cvxpy as cp
 
-cost_factor = 10
 class CostFunction(ABC):
     @abstractmethod
     def __call__(self, z: np.array, x: np.array):
@@ -35,9 +34,9 @@ class SeparableCost(CostFunction):
 
 
 class WeightedLinearCostFunction(SeparableCost):
-    def __init__(self, weighted_vector: np.array):
+    def __init__(self, weighted_vector: np.array, cost_factor=10):
         self.a = weighted_vector
-
+        self.cost_factor = cost_factor
 
     def __call__(self, z: np.array, x: np.array):
         return max(self.a.T @ (z - x), 0)
@@ -60,29 +59,29 @@ class WeightedLinearCostFunction(SeparableCost):
             return x
 
     def apply_cost1(self, x: np.array):
-        return cost_factor * self.a.T @ x
+        return self.cost_factor * self.a.T @ x
 
     def apply_cost2(self, x: np.array):
-        return cost_factor * self.a.T @ x
+        return self.cost_factor * self.a.T @ x
 
 
 class MixWeightedLinearSumSquareCostFunction(CostFunction):
-    def __init__(self, weighted_vector: np.array, epsilon=0.3):
+    def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=10):
         self.a = weighted_vector
         self.epsilon = epsilon
         self.num_changed = 0 # the number of example that his changed because of solving the minimization problem
         self.num_examples = 0
         self.num_above_trash = 0
         self.trash = 0.0005
+        self.cost_factor = cost_factor
         self.max_cost, self.max_separable_cost = -np.inf, -np.inf
 
     def __call__(self, z: np.array, x: np.array):
         return max((1 - self.epsilon) * self.a.T @ (z - x) + self.epsilon * np.sum((z - x) ** 2), 0)
 
-    def maximize_features_against_binary_model(self, x: np.array, trained_model,tolerance=1e-9):
+    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=1e-9):
         x_tag = cp.Variable(len(x))
-        # cost_factor = 10
-        func_to_solve = cp.Minimize(cost_factor*(cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon *
+        func_to_solve = cp.Minimize(self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon *
                                                cp.sum((x_tag - x) ** 2)))
 
         constrains = [x_tag @ trained_model.coef_[0] >= -trained_model.intercept_ + tolerance]
@@ -94,7 +93,7 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         result = prob.solve()
 
         cost_result = cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon * cp.sum((x_tag - x) ** 2) # it look like cvxpy has bug that why I calculate again..
-        cost_result *= cost_factor
+        cost_result *= self.cost_factor
         self.max_cost = max(self.max_cost, cost_result.value)
         self.max_separable_cost = max(self.max_separable_cost, (1 - self.epsilon) * self.a.T @ (x_tag.value - x))
         if x_tag is None:
