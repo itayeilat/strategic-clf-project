@@ -1,9 +1,11 @@
 import pandas as pd
+import os
 import numpy as np
 from train_member_clf import load_sklearn_model
 from cost_functions import *
 from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression as LR
+import random
 from sklearn.linear_model import LinearRegression
 
 import pickle
@@ -12,14 +14,20 @@ import matplotlib.pyplot as plt
 
 
 def visualize_projected_changed_df(before_change_df_path, after_change_df, features_to_project, title, label='LoanStatus',
-                                   num_point_to_plot=100, base_dir_path: str = 'result/changed_samples_by_gaming/2D_projection_images',
+                                   num_point_to_plot=100, base_dir_path: str = '2D_projection_images',
                                    to_save=True):
     def apply_transform_for_2D(df: pd.DataFrame):
-        transform_matrix = np.array([[1.5, 0], [1.5, 0], [2, 0], [0, -5], [0, -1], [1, 1]])
+        # transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, 6.15], [0, 0.404], [0, -0.56]])
+        transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, -6.15], [0, -0.404], [0, 0.56]])
+        array_list = list()
+        for item in f_weights[:int(len(f_weights) / 2)]:
+            array_list.append([item, 0])
+        for item in f_weights[int(len(f_weights) / 2):]:
+            array_list.append([0, item])
+        transform_matrix = np.vstack(array_list)
         return df @ transform_matrix
 
-
-
+    base_dir_path = run_name + '/' + base_dir_path
     fig, (ax_before, ax_after) = plt.subplots(1, 2)
     df_before = pd.read_csv(before_change_df_path)
     df_before_loan_status, df_before = df_before[label], df_before[features_to_project]
@@ -30,22 +38,14 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
     ax_after.set_title('after')
 
 
-
     projected_df_before, projected_df_after = apply_transform_for_2D(df_before), apply_transform_for_2D(df_after)
 
-    # color_list = np.array(list(map(lambda eq: 'tab:green' if eq else 'tab:blue', (df_before == df_after).any(1))))
-    #color_list[df_before_loan_status == -1] = 'tab:red'
-    # ax_before.scatter(projected_df_before[:, 0], projected_df_before[:, 1], c=color_list.tolist())
-    # ax_after.scatter(projected_df_after[:, 0], projected_df_after[:, 1], c=color_list.tolist())
 
-    # ax_before.scatter(projected_df_before[0], projected_df_before[1], c=color_list.tolist())
-    # ax_after.scatter(projected_df_after[0], projected_df_after[1], c=color_list.tolist())
+    # projected_df_after = projected_df_after[(df_before != df_after).any(1)]
+    # projected_df_before = projected_df_before[(df_before != df_after).any(1)]
 
-    projected_df_after = projected_df_after[(df_before != df_after).any(1)]
-    projected_df_before = projected_df_before[(df_before != df_after).any(1)]
-
-    ax_before.scatter(projected_df_before[0][:num_point_to_plot], projected_df_before[1][:num_point_to_plot])
-    ax_after.scatter(projected_df_after[0][:num_point_to_plot], projected_df_after[1][:num_point_to_plot])
+    ax_before.scatter(projected_df_before[0][:num_point_to_plot], projected_df_before[1][:num_point_to_plot], color='green')
+    ax_after.scatter(projected_df_after[0][:num_point_to_plot], projected_df_after[1][:num_point_to_plot], color='orange')
     plt.show()
 
     fig, ax = plt.subplots(1, 1)
@@ -58,16 +58,19 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
                   zorder=0, head_length=0.1, head_width=0.2)
         if i > num_point_to_plot:
             break
+
+    left_bound, right_bound = -1, 5.5
+    bottom_bound, up_bound = 2, 8
+    t = np.arange(left_bound, right_bound, 0.2)
+    plt.plot(t, -t - f_intercept, color='blue')
+    plt.xlim([left_bound, right_bound])
+    plt.ylim([bottom_bound, up_bound])
     plt.title(title)
     if to_save:
         saving_path = base_dir_path + '/' + title + '.png'
+        os.makedirs(base_dir_path + '/2D_projection_images', exist_ok=True)
         plt.savefig(saving_path)
     plt.show()
-
-
-
-
-
 
 
 def evaluate_on_modify(test_path, trained_model_path, feature_list_to_predict, target_label='LoanStatus'):
@@ -104,7 +107,6 @@ def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_pat
     with tqdm(total=len(orig_df)) as t:
         for (index, ex), label in zip(orig_df[feature_list].iterrows(), orig_df[target_label]):
             x = np.array(ex)
-            #if label == -1: #this maybe should be f here..
             if f.predict(x.reshape(1, -1))[0] == -1:
                 z = cost_func.maximize_features_against_binary_model(x, f)
                 modify_data.loc[index] = z
@@ -174,6 +176,7 @@ def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: 
 
             friends_and_member_df = friends_df[friends_df['MemberKey'].isin(member_friend_keys)]
             x = np.array(ex)
+            random.seed(42)
             f = LR(penalty='none').fit(friends_and_member_df[feature_to_learn_list], friends_and_member_df[target_label])
             if f.predict(x.reshape(1, -1))[0] == -1:
                 z = cost_func.maximize_features_against_binary_model(x, f)

@@ -24,9 +24,11 @@ model_loan_returned_path = 'models/loan_returned_model.sav'
 hardt_model_path = 'models/Hardt_model.sav'
 
 #a = 10 * np.array([10000, 1, 100000, -10000000, -1, 1000000000, 1, -1])
-# a = np.array([1, 1, 1, -1, -1, 1, 1, -1])
-# a = np.array([0.6573, 0.664, 3.72, -6.15, -0.404, 0.56])
+# a = np.array([5, 5, 1, -1, -1, 1, 1, -1])
+#a = np.array([0.6573, 0.664, 3.72, -6.15, -0.404, 0.56])
 a = np.array([0.5, 0.5, 1, -2, -0.5, 0.5])
+f_weights = np.array([0.6573, 0.664, 3.72, -6.15, -0.404, 0.56])
+f_intercept = -8.36
 
 feature_list_for_pred = ['TotalTrades', 'TotalInquiries',
                         'AvailableBankcardCredit', 'BankcardUtilization', 'AmountDelinquent',
@@ -61,3 +63,6 @@ six_most_significant_features = ['AvailableBankcardCredit', 'LoanOriginalAmount'
                                 'BankcardUtilization', 'TotalInquiries', 'CreditHistoryLength']
 
 eight_most_significant_features = six_most_significant_features + ['IsBorrowerHomeowner', 'DebtToIncomeRatio']
+
+# run_name = 'result/changed_samples_by_gaming'
+run_name = 'result/changed_samples_by_gaming_cost_factor=10'

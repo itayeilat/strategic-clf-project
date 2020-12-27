@@ -8,6 +8,7 @@ from train_member_clf import *
 from startegic_players import *
 from cost_functions import *
 from create_fake_data import main_create_fake_data, create_member_friends_dict
+import random
 
 
 
@@ -42,6 +43,7 @@ def run_strategic_full_info():
 
 
 def strategic_random_friends_info(train_hadart=False):
+
     feature_list_to_use = six_most_significant_features
     if train_hadart:
         train_df = pd.read_csv(fake_train_path)
@@ -55,16 +57,21 @@ def strategic_random_friends_info(train_hadart=False):
 
     f = load_sklearn_model(model_loan_returned_path)
     fake_test_df = pd.read_csv(fake_test_path)[feature_list_to_use]
-    test_pred_loans_status = f.predict(fake_test_df)
+    test_pred_loans_status_f = f.predict(fake_test_df)
+    test_pred_loans_status_hardt = hardt_algo(fake_test_df)
     dict_result = dict()
     dict_result['number_of_friends_to_learn_list'] = [4, 6, 10, 50, 100, 200, 500, 1000, 2000, 4000, 7000, 10000]
+    # dict_result['number_of_friends_to_learn_list'] = [4, 10000]
     dict_result['hadart_friends_acc_list'] = []
     dict_result['linear_model_friends_acc_list'] = []
-    dict_result['num_improved_list'] = []
-    dict_result['num_degrade_list'] = []
+    dict_result['num_improved_list_f'] = []
+    dict_result['num_degrade_list_f'] = []
+    dict_result['num_improved_hardat_list'] = []
+    dict_result['num_degrade_hardat_list'] = []
 
     for num_friend in dict_result['number_of_friends_to_learn_list']:
         print(num_friend)
+        random.seed(8)
         member_dict = create_member_friends_dict(num_friend, fake_set_to_sample_from_path, fake_test_path)
         cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a[:len(feature_list_to_use)])
         friends_modify_strategic_data = strategic_modify_learn_from_friends(fake_test_path, fake_set_to_sample_from_path,
@@ -72,46 +79,61 @@ def strategic_random_friends_info(train_hadart=False):
                                                             title_for_visualization=f'fake test learned {num_friend}')
 
         modify_pred_loan_status = f.predict(friends_modify_strategic_data[feature_list_to_use])
-        dict_result['num_improved_list'].append(np.sum(modify_pred_loan_status > test_pred_loans_status).item())
-        dict_result['num_degrade_list'].append(np.sum(modify_pred_loan_status < test_pred_loans_status).item())
+        dict_result['num_improved_list_f'].append(np.sum(modify_pred_loan_status > test_pred_loans_status_f).item())
+        dict_result['num_degrade_list_f'].append(np.sum(modify_pred_loan_status < test_pred_loans_status_f).item())
+
         f_acc = np.sum(modify_pred_loan_status == friends_modify_strategic_data['LoanStatus']).item() / len(friends_modify_strategic_data)
         dict_result['linear_model_friends_acc_list'].append(f_acc)
         print(f_acc)
 
-        pred_loan_status = hardt_algo(friends_modify_strategic_data[feature_list_to_use])
-        hardt_acc = np.sum(pred_loan_status == friends_modify_strategic_data['LoanStatus']).item() / len(friends_modify_strategic_data)
+        hardt_pred_loan_status = hardt_algo(friends_modify_strategic_data[feature_list_to_use])
+        dict_result['num_improved_hardat_list'].append(np.sum(hardt_pred_loan_status > test_pred_loans_status_hardt).item())
+
+
+        dict_result['num_degrade_hardat_list'].append(np.sum(hardt_pred_loan_status < test_pred_loans_status_hardt).item())
+
+        hardt_acc = np.sum(hardt_pred_loan_status == friends_modify_strategic_data['LoanStatus']).item() / len(friends_modify_strategic_data)
         print(hardt_acc)
         dict_result['hadart_friends_acc_list'].append(hardt_acc)
 
 
-    base_output_path = 'result/changed_samples_by_gaming'
-    with open(base_output_path + '/dict_result.json', 'w') as json_file:
-        json.dump(dict_result, json_file, indent=4)
+    # base_output_path = 'result/changed_samples_by_gaming'
+    base_output_path = run_name
+    os.makedirs(base_output_path, exist_ok=True)
+    # with open(base_output_path + '/dict_result.json', 'w') as json_file:
+        # json.dump(dict_result, json_file, indent=4)
 
     plt.title('accuracy vs number of random friend to learn')
     plt.xlabel('number of friends')
     plt.xscale('symlog')
     plt.ylabel('accuracy')
-    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['linear_model_friends_acc_list'],
-             dict_result['number_of_friends_to_learn_list'], dict_result['hadart_friends_acc_list'])
-    # plt.legend('f linear model', 'Hardart model')
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['linear_model_friends_acc_list'], '-b', label='f* linear model')
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['hadart_friends_acc_list'], '-r', label='Hardart model')
+    plt.legend(loc="upper right")
     plt.savefig(base_output_path + '/accuracy_vs_num_friends.png')
+    plt.show()
     plt.close()
 
-    plt.title('number players that improved on f* vs number of random friend to learn')
+    plt.title('number players that improved on model vs number of random friend to learn')
     plt.xlabel('number of friends')
     plt.xscale('symlog')
     plt.ylabel('num improved')
-    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_improved_list'])
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_improved_list_f'], '-b', label='f* linear model')
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_improved_hardat_list'], '-r', label='Hardart model')
+    plt.legend(loc="upper right")
     plt.savefig(base_output_path + '/num_improved_vs_num_friends.png')
+    plt.show()
     plt.close()
 
-    plt.title('number players that improved on f* vs number of random friend to learn')
+    plt.title('number players that degrade on model vs number of random friend to learn')
     plt.xlabel('number of friends')
     plt.xscale('symlog')
     plt.ylabel('num degrade')
-    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_degrade_list'])
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_degrade_list_f'], '-b', label='f* linear model')
+    plt.plot(dict_result['number_of_friends_to_learn_list'], dict_result['num_degrade_hardat_list'], '-r', label='Hardart model')
+    plt.legend(loc="upper right")
     plt.savefig(base_output_path + '/num_degrade_vs_num_friends.png')
+    plt.show()
     plt.close()
 
 
@@ -119,7 +141,7 @@ def strategic_random_friends_info(train_hadart=False):
 if __name__ == '__main__':
    #main_create_fake_data()
    strategic_random_friends_info()
-   #run_strategic_full_info()
+   # run_strategic_full_info()
 
 
 
