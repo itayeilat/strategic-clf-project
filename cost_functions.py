@@ -79,7 +79,7 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
     def __call__(self, z: np.array, x: np.array):
         return max((1 - self.epsilon) * self.a.T @ (z - x) + self.epsilon * np.sum((z - x) ** 2), 0)
 
-    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=1e-9):
+    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=0.01):
         x_tag = cp.Variable(len(x))
         func_to_solve = cp.Minimize(self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon *
                                                cp.sum((x_tag - x) ** 2)))

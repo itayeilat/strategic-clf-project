@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 
 
 def visualize_projected_changed_df(before_change_df_path, after_change_df, features_to_project, title, label='LoanStatus',
-                                   num_point_to_plot=100, base_dir_path: str = '2D_projection_images',
-                                   to_save=True):
+                                   num_point_to_plot=100, dir_for_projection_images: str = '2D_projection_images',
+                                   to_save=True, dir_name_for_saving_visualize=None):
     def apply_transform_for_2D(df: pd.DataFrame):
         # transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, 6.15], [0, 0.404], [0, -0.56]])
         transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, -6.15], [0, -0.404], [0, 0.56]])
@@ -27,7 +27,8 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
         transform_matrix = np.vstack(array_list)
         return df @ transform_matrix
 
-    base_dir_path = run_name + '/' + base_dir_path
+    os.makedirs(dir_name_for_saving_visualize, exist_ok=True)
+    dir_for_projection_images = os.path.join(dir_name_for_saving_visualize, dir_for_projection_images)
     fig, (ax_before, ax_after) = plt.subplots(1, 2)
     df_before = pd.read_csv(before_change_df_path)
     df_before_loan_status, df_before = df_before[label], df_before[features_to_project]
@@ -43,7 +44,7 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
 
     # projected_df_after = projected_df_after[(df_before != df_after).any(1)]
     # projected_df_before = projected_df_before[(df_before != df_after).any(1)]
-
+    np.random.seed(4)
     ax_before.scatter(projected_df_before[0][:num_point_to_plot], projected_df_before[1][:num_point_to_plot], color='green')
     ax_after.scatter(projected_df_after[0][:num_point_to_plot], projected_df_after[1][:num_point_to_plot], color='orange')
     plt.show()
@@ -60,15 +61,15 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
             break
 
     left_bound, right_bound = -1, 5.5
-    bottom_bound, up_bound = 2, 8
+    bottom_bound, up_bound = 1, 8
     t = np.arange(left_bound, right_bound, 0.2)
     plt.plot(t, -t - f_intercept, color='blue')
     plt.xlim([left_bound, right_bound])
     plt.ylim([bottom_bound, up_bound])
     plt.title(title)
     if to_save:
-        saving_path = base_dir_path + '/' + title + '.png'
-        os.makedirs(base_dir_path + '/2D_projection_images', exist_ok=True)
+        saving_path = os.path.join(dir_for_projection_images, title + '.png')
+        os.makedirs(dir_for_projection_images, exist_ok=True)
         plt.savefig(saving_path)
     plt.show()
 
@@ -84,11 +85,9 @@ def evaluate_on_modify(test_path, trained_model_path, feature_list_to_predict, t
 
 
 def train_loan_return_model(list_features_for_pred, binary_trained_model_path, target_label='LoanStatus'):
-    def round_loan_numeric_to_classified(predicted_value):
-        return 1 if predicted_value >= 0 else -1
+    fake_train_df, fake_val_df, fake_test_df = pd.read_csv(synthetic_train_path), pd.read_csv(synthetic_val_path), pd.read_csv(synthetic_test_path)
 
-    fake_train_df, fake_val_df, fake_test_df = pd.read_csv(fake_train_path), pd.read_csv(fake_val_path), pd.read_csv(fake_test_path)
-    linear_model = LR(penalty='none') # it was chosen empirically with validation set
+    linear_model = LR(penalty='none', random_state=42) # it was chosen empirically with validation set
     fake_train_val = pd.concat([fake_train_df, fake_val_df])
     linear_model.fit(fake_train_val[list_features_for_pred], fake_train_val[target_label])
     y_test_pred = linear_model.predict(fake_test_df[list_features_for_pred])
@@ -119,7 +118,7 @@ def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_pat
     return modify_data
 
 
-def create_strategic_data_sets_using_known_clf(retrain_model_loan_return=True):
+def create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, retrain_model_loan_return=True, save_visualize_projected_changed=True):
     binary_trained_model_path = 'data/loan_returned_model.sav'
     features_to_use = six_most_significant_features
     a_vec = a[:len(features_to_use)]
@@ -127,15 +126,15 @@ def create_strategic_data_sets_using_known_clf(retrain_model_loan_return=True):
         train_loan_return_model(features_to_use, binary_trained_model_path)
 
     weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a_vec)
-    modify_full_information_test = strategic_modify_using_known_clf(fake_test_path, binary_trained_model_path, features_to_use,
-                                     weighted_linear_cost, modify_full_information_test_fake_path)
-    visualize_projected_changed_df(fake_test_path, modify_full_information_test, features_to_use, 'fake test')
+    modify_full_information_test = strategic_modify_using_known_clf(synthetic_test_path, binary_trained_model_path, features_to_use,
+                                                                    weighted_linear_cost, modify_full_information_test_synthetic_path)
+    visualize_projected_changed_df(synthetic_test_path, modify_full_information_test, features_to_use, 'synthetic test',
+                                   to_save=save_visualize_projected_changed, dir_name_for_saving_visualize=dir_name_for_saving_visualize)
 
-    acc_fake_test_modify = evaluate_on_modify(test_path=modify_full_information_test_fake_path,
+    acc_fake_test_modify = evaluate_on_modify(test_path=modify_full_information_test_synthetic_path,
                                               trained_model_path=binary_trained_model_path,
                                               feature_list_to_predict=six_most_significant_features)
     print(f'the accuracy on the test set when it trained on not modify train {acc_fake_test_modify}')
-    weighted_linear_cost.get_statistic_on_num_change()
     weighted_linear_cost.get_statistic_on_num_change()
 
 
@@ -166,7 +165,7 @@ def for_each_member_row(row_member, friends_and_member_df: pd.DataFrame, feature
 
 
 def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,
-                                        member_dict: dict, out_path: str = None, title_for_visualization: str = None):
+                                        member_dict: dict, dir_name_for_saving_visualize: str = None, title_for_visualization: str = None):
     orig_df = pd.read_csv(orig_df_path)
     friends_df = pd.read_csv(sample_from_df_path)
     modify_data = orig_df[feature_to_learn_list].copy()
@@ -186,7 +185,8 @@ def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: 
         modify_data.insert(len(modify_data.columns), col_name, orig_df[col_name], True)
 
     cost_func.get_statistic_on_num_change()
-    visualize_projected_changed_df(fake_test_path, modify_data, feature_to_learn_list, title_for_visualization)
+    visualize_projected_changed_df(synthetic_test_path, modify_data, feature_to_learn_list, title_for_visualization,
+                                   dir_name_for_saving_visualize=dir_name_for_saving_visualize)
     return modify_data
 
 
