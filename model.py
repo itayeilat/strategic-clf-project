@@ -46,6 +46,35 @@ class HardtAlgo(TrainModel):
             return
 
         return X.apply(apply_single_prdictive, axis=1)
+    ''''
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
+
+         def apply_err_si_calc(s_i):
+             def apply_cost_with_thresh(x):
+                 return 1 if self.separable_cost.apply_cost1(x) >= thresh else -1
+
+             thresh = s_i - 2
+             err_si = np.sum(y != X.apply(apply_cost_with_thresh, axis=1)) / len(X)
+             return err_si
+
+         min_err_si = np.inf
+         S = X.apply(self.separable_cost.apply_cost2, axis=1) + 2
+
+         # with tqdm(total=len(S)) as t:
+         #     for i, s_i in enumerate(S):
+         #         thresh = s_i - 2
+         #         err_si = np.sum(y != X.apply(apply_cost_with_thresh, axis=1)) / len(X)
+         #         if min_err_si > err_si:
+         #             min_err_si = err_si
+         #             self.min_si = s_i
+         #         t.update(1)
+         tqdm.pandas()
+         # err_si = S.apply(apply_err_si_calc)
+         err_si = S.progress_apply(apply_err_si_calc)
+         self.min_si = S[err_si.argmin()]
+         # pd.DataFrame(S).apply(apply_err_si_calc)
+
+    '''''
 
     def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         def apply_cost_with_thresh(x):

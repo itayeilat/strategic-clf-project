@@ -34,7 +34,7 @@ class SeparableCost(CostFunction):
 
 
 class WeightedLinearCostFunction(SeparableCost):
-    def __init__(self, weighted_vector: np.array, cost_factor=10):
+    def __init__(self, weighted_vector: np.array, cost_factor=8):
         self.a = weighted_vector
         self.cost_factor = cost_factor
 
@@ -66,7 +66,7 @@ class WeightedLinearCostFunction(SeparableCost):
 
 
 class MixWeightedLinearSumSquareCostFunction(CostFunction):
-    def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=10):
+    def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=7):
         self.a = weighted_vector
         self.epsilon = epsilon
         self.num_changed = 0 # the number of example that his changed because of solving the minimization problem
@@ -75,11 +75,17 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         self.trash = 0.0005
         self.cost_factor = cost_factor
         self.max_cost, self.max_separable_cost = -np.inf, -np.inf
+        import pickle
+        model_loan_returned_path = 'models/loan_returned_model.sav'
+        self.f = pickle.load(open(model_loan_returned_path, 'rb'))
+        self.num_changed_on_f_hat_not_f = 0
+        self.cost_left_avg = 0
+        self.sub_f_res_f_hat_res = 0
 
     def __call__(self, z: np.array, x: np.array):
         return max((1 - self.epsilon) * self.a.T @ (z - x) + self.epsilon * np.sum((z - x) ** 2), 0)
 
-    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=0.01):
+    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=1e-9):
         x_tag = cp.Variable(len(x))
         func_to_solve = cp.Minimize(self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon *
                                                cp.sum((x_tag - x) ** 2)))
@@ -91,19 +97,25 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
             constrains.append(x_tag[4] >= x[4])  # total number of inquiries can't get lower.
         prob = cp.Problem(func_to_solve, constrains)
         result = prob.solve()
-
+        if x_tag is None:
+            print("couldn't solve this problem")
+            return x
         cost_result = cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon * cp.sum((x_tag - x) ** 2) # it look like cvxpy has bug that why I calculate again..
         cost_result *= self.cost_factor
         self.max_cost = max(self.max_cost, cost_result.value)
         self.max_separable_cost = max(self.max_separable_cost, (1 - self.epsilon) * self.a.T @ (x_tag.value - x))
-        if x_tag is None:
-            print("couldn't solve this problem")
-            return x
+
         self.num_examples += 1
-        if trained_model.predict(x_tag.value.reshape(1, -1))[0] == 1 and cost_result.value < 2:
+        # if trained_model.predict(x_tag.value.reshape(1, -1))[0] == 1 and cost_result.value < 2:
+        if trained_model.predict(x_tag.value.reshape(1, -1))[0] >= 0 and cost_result.value < 2:
+            self.num_changed += 1
+            if self.f.predict(x_tag.value.reshape(1, -1))[0] == -1:
+                self.num_changed_on_f_hat_not_f += 1
+                self.cost_left_avg += 2 - cost_result.value
+                self.sub_f_res_f_hat_res += (x_tag.value @ self.f.coef_[0] + self.f.intercept_ - (x_tag.value @ trained_model.coef_[0] + trained_model.intercept_))
             if self.a.T @ (x_tag.value - x) > self.trash:
                 self.num_above_trash += 1
-            self.num_changed += 1
+
             return x_tag.value
 
         else:
@@ -116,7 +128,11 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         print(
             f'number of examples that has changed: {self.num_changed} and the percent is {calc_percent(self.num_changed)}'
             f'the number of examples above {self.trash} is : {self.num_above_trash} which are {calc_percent(self.num_above_trash)}% '
-            f'max cost func is:{self.max_cost} and the max separable cost is: {self.max_separable_cost}')
+            f'max cost func is:{self.max_cost} and the max separable cost is: {self.max_separable_cost} \n'
+            # f'num_changed_on_f_hat_not_f: {self.num_changed_on_f_hat_not_f}\n'
+            # f'cost left avg according to num changed on f_hat but not f: {self.cost_left_avg / self.num_changed_on_f_hat_not_f}\n'
+            # f'avg sub f and f_hat: {self.sub_f_res_f_hat_res/ self.num_changed_on_f_hat_not_f}'
+        )
 
 
         #return self.num_changed, 100 * self.num_changed / self.num_examples

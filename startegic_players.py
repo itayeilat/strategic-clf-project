@@ -5,25 +5,39 @@ from train_member_clf import load_sklearn_model
 from cost_functions import *
 from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression as LR
+from sklearn.svm import LinearSVC
 import random
 from sklearn.linear_model import LinearRegression
+from create_synthetic_data import get_f_star_loan_status_real_train_val_test_df
+
 
 import pickle
 from utills_and_consts import *
 import matplotlib.pyplot as plt
 
 
-def visualize_projected_changed_df(before_change_df_path, after_change_df, features_to_project, title, label='LoanStatus',
+def visualize_projected_changed_df(before_change_df_path, after_change_df, features_to_project, title, f_weights, f_inter, label='LoanStatus',
                                    num_point_to_plot=100, dir_for_projection_images: str = '2D_projection_images',
                                    to_save=True, dir_name_for_saving_visualize=None):
     def apply_transform_for_2D(df: pd.DataFrame):
-        # transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, 6.15], [0, 0.404], [0, -0.56]])
-        transform_matrix1 = np.array([[0.6573, 0], [0.664, 0], [3.72, 0], [0, -6.15], [0, -0.404], [0, 0.56]])
         array_list = list()
-        for item in f_weights[:int(len(f_weights) / 2)]:
-            array_list.append([item, 0])
-        for item in f_weights[int(len(f_weights) / 2):]:
-            array_list.append([0, item])
+        # for item in f_weights[:int(len(f_weights) / 2)]:
+        #     array_list.append([item, 0])
+        # for item in f_weights[int(len(f_weights) / 2):]:
+        #     array_list.append([0, item])
+        # transform_matrix = np.vstack(array_list)
+        axis_x_indecies = [0, 1, 2]
+        axis_y_indecies = [3, 4, 5]
+        for i in range(len(f_weights)):
+            if i in axis_x_indecies:
+                array_list.append([f_weights[i], 0])
+            else:
+                array_list.append([0, f_weights[i]])
+
+        # for i in axis_x_indecies:
+        #     array_list.append([f_weights[i], 0])
+        # for i in axis_y_indecies:
+        #     array_list.append([0, f_weights[i]])
         transform_matrix = np.vstack(array_list)
         return df @ transform_matrix
 
@@ -32,7 +46,6 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
     fig, (ax_before, ax_after) = plt.subplots(1, 2)
     df_before = pd.read_csv(before_change_df_path)
     df_before_loan_status, df_before = df_before[label], df_before[features_to_project]
-    # df_after = pd.read_csv(after_change_df_path)[features_to_project]
     df_after = after_change_df[features_to_project]
     fig.suptitle(title)
     ax_before.set_title('before')
@@ -56,14 +69,14 @@ def visualize_projected_changed_df(before_change_df_path, after_change_df, featu
         before_row, after_row = before_row_tup[1], after_row_tup[1]
         plt.arrow(before_row[0], before_row[1], after_row[0] - before_row[0], after_row[1] - before_row[1],
                   shape='full', color='black', length_includes_head=True,
-                  zorder=0, head_length=0.1, head_width=0.2)
+                  zorder=0, head_length=0.1, head_width=0.05)
         if i > num_point_to_plot:
             break
 
-    left_bound, right_bound = -1, 5.5
-    bottom_bound, up_bound = 1, 8
+    left_bound, right_bound = -1, 3
+    bottom_bound, up_bound = 1, 3
     t = np.arange(left_bound, right_bound, 0.2)
-    plt.plot(t, -t - f_intercept, color='blue')
+    plt.plot(t, -t - f_inter, color='blue')
     plt.xlim([left_bound, right_bound])
     plt.ylim([bottom_bound, up_bound])
     plt.title(title)
@@ -85,22 +98,22 @@ def evaluate_on_modify(test_path, trained_model_path, feature_list_to_predict, t
 
 
 def train_loan_return_model(list_features_for_pred, binary_trained_model_path, target_label='LoanStatus'):
-    fake_train_df, fake_val_df, fake_test_df = pd.read_csv(synthetic_train_path), pd.read_csv(synthetic_val_path), pd.read_csv(synthetic_test_path)
+    train_df, val_df, test_df, train_val_df = get_f_star_loan_status_real_train_val_test_df()
+    # linear_model = LR(penalty='none', random_state=42) # it was chosen empirically with validation set
+    linear_model = LinearSVC(penalty='l2', random_state=42)
 
-    linear_model = LR(penalty='none', random_state=42) # it was chosen empirically with validation set
-    fake_train_val = pd.concat([fake_train_df, fake_val_df])
-    linear_model.fit(fake_train_val[list_features_for_pred], fake_train_val[target_label])
-    y_test_pred = linear_model.predict(fake_test_df[list_features_for_pred])
-    acc = np.sum(y_test_pred == fake_test_df[target_label]) / len(y_test_pred)
-    print(f'acc on synthetic test:{acc}')
+    linear_model.fit(train_val_df[list_features_for_pred], train_val_df[target_label])
+    y_test_pred = linear_model.predict(test_df[list_features_for_pred])
+    acc = np.sum(y_test_pred == test_df[target_label]) / len(y_test_pred)
+    print(f'acc on pre2009 test:{acc}')
     pickle.dump(linear_model, open(binary_trained_model_path, 'wb'))
 
 
-def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_path, feature_list,
+def strategic_modify_using_known_clf(orig_df_path: str, f, feature_list,
                                      cost_func: CostFunction, out_path=None,
                                      target_label='LoanStatus'):
     orig_df = pd.read_csv(orig_df_path)
-    f = load_sklearn_model(binary_trained_model_path)
+
     modify_data = orig_df[feature_list].copy()
 
     with tqdm(total=len(orig_df)) as t:
@@ -117,26 +130,55 @@ def strategic_modify_using_known_clf(orig_df_path: str, binary_trained_model_pat
         modify_data.to_csv(out_path)
     return modify_data
 
+#todo: create one function for each line here..
+def create_data_with_f_loan_status(f: LinearSVC, force_to_create=True):
+    if force_to_create or os.path.exists(real_train_f_loan_status_path):
+        train_df = pd.read_csv(real_train_f_star_loan_status_path)
+        train_df['LoanStatus'] = f.predict(train_df[six_most_significant_features])
+        train_df.to_csv(real_train_f_loan_status_path)
 
-def create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, retrain_model_loan_return=True, save_visualize_projected_changed=True):
-    binary_trained_model_path = 'data/loan_returned_model.sav'
+    if force_to_create or os.path.exists(real_val_f_loan_status_path):
+        val_df = pd.read_csv(real_val_f_star_loan_status_path)
+        val_df['LoanStatus'] = f.predict(val_df[six_most_significant_features])
+        val_df.to_csv(real_val_f_loan_status_path)
+
+    if force_to_create or os.path.exists(real_test_f_loan_status_path):
+        test_df = pd.read_csv(real_test_f_star_loan_status_path)
+        test_df['LoanStatus'] = f.predict(test_df[six_most_significant_features])
+        test_df.to_csv(real_test_f_loan_status_path)
+
+    if force_to_create or os.path.exists(real_train_val_f_loan_status_path):
+        train_val_df = pd.read_csv(real_train_val_f_star_loan_status_path)
+        train_val_df['LoanStatus'] = f.predict(train_val_df[six_most_significant_features])
+        train_val_df.to_csv(real_train_val_f_loan_status_path)
+
+
+def create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, cost_factor, epsilon, retrain_model_loan_return=False, save_visualize_projected_changed=True):
+
+    binary_trained_model_path = model_loan_returned_path
     features_to_use = six_most_significant_features
     a_vec = a[:len(features_to_use)]
-    if retrain_model_loan_return:
+    if retrain_model_loan_return or os.path.exists(binary_trained_model_path) is False:
         train_loan_return_model(features_to_use, binary_trained_model_path)
 
-    weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a_vec)
-    modify_full_information_test = strategic_modify_using_known_clf(synthetic_test_path, binary_trained_model_path, features_to_use,
-                                                                    weighted_linear_cost, modify_full_information_test_synthetic_path)
-    visualize_projected_changed_df(synthetic_test_path, modify_full_information_test, features_to_use, 'synthetic test',
-                                   to_save=save_visualize_projected_changed, dir_name_for_saving_visualize=dir_name_for_saving_visualize)
+    f = load_sklearn_model(binary_trained_model_path)
+    create_data_with_f_loan_status(f)
+    f_weights, f_inter = f.coef_[0], f.intercept_
 
-    acc_fake_test_modify = evaluate_on_modify(test_path=modify_full_information_test_synthetic_path,
+
+    weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a_vec, cost_factor=cost_factor, epsilon=epsilon)
+    modify_full_information_test = strategic_modify_using_known_clf(real_test_f_star_loan_status_path, f, features_to_use,
+                                                                    weighted_linear_cost, modify_full_information_real_test_path)
+    visualize_projected_changed_df(real_test_f_star_loan_status_path, modify_full_information_test, features_to_use, 'real test',
+                                   to_save=save_visualize_projected_changed, dir_name_for_saving_visualize=dir_name_for_saving_visualize, f_weights=f_weights, f_inter=f_inter)
+
+    acc_fake_test_modify = evaluate_on_modify(test_path=modify_full_information_real_test_path,
                                               trained_model_path=binary_trained_model_path,
                                               feature_list_to_predict=six_most_significant_features)
     print(f'the accuracy on the test set when it trained on not modify train {acc_fake_test_modify}')
+    print(f'angle: {np.arccos(a @ f.coef_[0] / (np.linalg.norm(a) * np.linalg.norm(f.coef_[0]))) * 180/np.pi}')
     weighted_linear_cost.get_statistic_on_num_change()
-
+    return modify_full_information_test
 
 
 
@@ -165,29 +207,65 @@ def for_each_member_row(row_member, friends_and_member_df: pd.DataFrame, feature
 
 
 def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,
-                                        member_dict: dict, dir_name_for_saving_visualize: str = None, title_for_visualization: str = None):
+                                        member_dict: dict, f_weights, f_inter, dir_name_for_saving_visualize: str = None, title_for_visualization: str = None):
+    f = load_sklearn_model(model_loan_returned_path)
+    counter = 0 #todo del..
+    sum_acc = 0
     orig_df = pd.read_csv(orig_df_path)
     friends_df = pd.read_csv(sample_from_df_path)
     modify_data = orig_df[feature_to_learn_list].copy()
+    sum_l2_norm = 0
+    sum_angle_f_hat_f = 0
     with tqdm(total=len(orig_df)) as t:
         for (index, ex), member_key in zip(orig_df[feature_to_learn_list].iterrows(), orig_df['MemberKey']):
             member_friend_keys = set(friends_df.iloc[member_dict[member_key]["friends with credit data"], :]['MemberKey'])
 
             friends_and_member_df = friends_df[friends_df['MemberKey'].isin(member_friend_keys)]
             x = np.array(ex)
-            random.seed(42)
-            f = LR(penalty='none').fit(friends_and_member_df[feature_to_learn_list], friends_and_member_df[target_label])
-            if f.predict(x.reshape(1, -1))[0] == -1:
-                z = cost_func.maximize_features_against_binary_model(x, f)
+            f_hat = LinearSVC(penalty='l2', random_state=42, max_iter=10000).fit(friends_and_member_df[feature_to_learn_list],
+                                                                                 f.predict(friends_and_member_df[feature_to_learn_list]))
+
+            sum_acc += np.sum(f_hat.predict(orig_df[feature_to_learn_list]) == f.predict(orig_df[feature_to_learn_list])) / len(orig_df)
+            v1, v2 = np.append(f_hat.coef_[0], f_hat.intercept_), np.append(f.coef_[0], f.intercept_)
+            sum_l2_norm += np.linalg.norm(v1 - v2)
+
+            v1_u = v1 / np.linalg.norm(v1)
+            v2_u = v2 / np.linalg.norm(v2)
+            sum_angle_f_hat_f += np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0)) * 180 / np.pi
+
+            # f_hat = LR(penalty='none', random_state=42).fit(friends_and_member_df[feature_to_learn_list], friends_and_member_df[target_label])
+
+            # f_hat = LR(penalty='l2', random_state=42).fit(friends_and_member_df[feature_to_learn_list],
+            #                                                   f.predict(friends_and_member_df[feature_to_learn_list]))
+            # f_hat = LinearRegression().fit(friends_and_member_df[feature_to_learn_list],
+            #                                                   f.predict(friends_and_member_df[feature_to_learn_list]))
+
+            ##################################
+            # fake_train_df, fake_val_df = pd.read_csv(synthetic_train_path), pd.read_csv(synthetic_val_path)
+            # fake_test_df = pd.read_csv(synthetic_test_path)[feature_to_learn_list]
+            # fake_test_predictions = f.predict(fake_test_df)
+            # linear_model = LR(penalty='none', random_state=42)  # it was chosen empirically with validation set
+            # fake_train_val = pd.concat([fake_train_df, fake_val_df])
+            # linear_model.fit(fake_train_val[feature_to_learn_list], fake_train_val[target_label])
+            # acc_linear_model = np.sum(linear_model.predict(fake_test_df) == fake_test_predictions) / len(fake_test_predictions)
+            # acc_f_hat = np.sum(f_hat.predict(fake_test_df) == fake_test_predictions) / len(fake_test_predictions)
+
+            ##################################
+
+            if f_hat.predict(x.reshape(1, -1))[0] == -1:
+                counter += 1
+                z = cost_func.maximize_features_against_binary_model(x, f_hat)
                 modify_data.loc[index] = z
+
             t.update(1)
+    print(f'counter is: {counter}')
     for col_name in filter(lambda c: c not in modify_data.columns, orig_df.columns):
         modify_data.insert(len(modify_data.columns), col_name, orig_df[col_name], True)
 
     cost_func.get_statistic_on_num_change()
-    visualize_projected_changed_df(synthetic_test_path, modify_data, feature_to_learn_list, title_for_visualization,
-                                   dir_name_for_saving_visualize=dir_name_for_saving_visualize)
-    return modify_data
+    visualize_projected_changed_df(real_test_f_star_loan_status_path, modify_data, feature_to_learn_list, title_for_visualization,
+                                   dir_name_for_saving_visualize=dir_name_for_saving_visualize, f_weights=f_weights, f_inter=f_inter)
+    return modify_data, sum_acc/len(orig_df), sum_l2_norm/(len(orig_df)), sum_angle_f_hat_f/len(orig_df)
 
 
 # def strategic_modify_learn_from_friends(orig_df_path: str, sample_from_df_path: str, feature_to_learn_list, cost_func: CostFunction, target_label,

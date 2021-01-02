@@ -116,6 +116,12 @@ def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
                                   [prefix_key_string + 'Loan' + str(i) for i in range(fake_data_set_size)], True)
 
     if create_new_sample_set:
+        if os.path.exists(model_loan_returned_path) == False:
+            print("can't find model loan returned please train it first. exit now with error 1")
+            exit(1)
+        f = load_sklearn_model(model_loan_returned_path)
+        f_loan_status = f.predict(synthetic_data_set[six_most_significant_features])
+        synthetic_data_set.insert(len(synthetic_data_set.columns), 'LoanStatusByModelF', f_loan_status, True)
         synthetic_data_set.to_csv(synthetic_set_to_sample_from_path)
     else:
         synthetic_train_df, synthetic_val_df, synthetic_test_df = split_df(synthetic_data_set)
@@ -130,12 +136,38 @@ def apply_transform_creditgrade_loan_returned(credit_grade):
     return -1 if guss < loan_tresh else 1
 
 
-def sample_all_classes_in_list(friends_df, num_friends,num_class=2, label_name='LoanStatus'):
+def get_f_star_loan_status_real_train_val_test_df(force_create_train=False, force_create_val=False, force_create_test=False):
+    def get_real_f_star_loan_status_real_df(force_create, orig_df_path, orig_df_f_star_loan_status):
+        if os.path.exists(orig_df_f_star_loan_status) is False or force_create:
+            orig_real_df = pd.read_csv(orig_df_path)
+            orig_real_df['LoanStatus'] = orig_real_df['CreditGrade'].apply(apply_transform_creditgrade_loan_returned)
+            orig_real_df.to_csv(orig_df_f_star_loan_status)
+        else:
+            orig_real_df = pd.read_csv(orig_df_f_star_loan_status)
+        return orig_real_df
+
+    train_df = get_real_f_star_loan_status_real_df(force_create_train, orig_train_path,
+                                                             real_train_f_star_loan_status_path)
+    val_df = get_real_f_star_loan_status_real_df(force_create_val, orig_val_path,
+                                                             real_val_f_star_loan_status_path)
+    test_df = get_real_f_star_loan_status_real_df(force_create_test, orig_test_path,
+                                                   real_test_f_star_loan_status_path)
+    train_val_df = pd.concat([train_df, val_df])
+    train_val_df.to_csv(real_train_val_f_star_loan_status_path)
+    return train_df, val_df, test_df, train_val_df
+
+
+
+
+def sample_all_classes_in_list(friends_df, num_friends, num_class=2, label_name='LoanStatus'):
     index_friends_list = list()
     classes_set = set()
+    f = load_sklearn_model(model_loan_returned_path) #todo: remove..
     while len(classes_set) < num_class:
         index_friends_list = random.sample(range(len(friends_df)), num_friends)
-        classes_set = set(friends_df.iloc[index_friends_list, :][label_name])
+        # classes_set = set(friends_df.iloc[index_friends_list, :][label_name])
+        # classes_set = set(friends_df.iloc[index_friends_list, :][label_name])
+        classes_set = set(f.predict(friends_df.iloc[index_friends_list, :][six_most_significant_features]))
     return index_friends_list
 
 
@@ -144,7 +176,7 @@ def create_member_friends_dict(num_friends, sample_from_df_path, df_to_create_li
     df_to_create_list_friend = pd.read_csv(df_to_create_list_friend_path)
     if os.path.exists(member_dict_path) is False or force_to_crate:
         member_dict = dict()
-        random.seed(42)
+        random.seed(8)
         for mem_key, data in df_to_create_list_friend.groupby('MemberKey'):
             index_friends_list = sample_all_classes_in_list(friends_df, num_friends)
             member_dict[mem_key] = {"friends with credit data": index_friends_list}
@@ -157,7 +189,7 @@ def create_member_friends_dict(num_friends, sample_from_df_path, df_to_create_li
     return member_dict
 
 
-def main_create_synhetic_data(create_new_sample_set=False, train_gmm=True, seed=88):
+def main_create_synhetic_data(create_new_sample_set=False, train_gmm=True, seed=88, fake_data_set_size=10000):
 
     path_to_CG_model = 'models/lgb_model_CG.sav'
     train_model = False
@@ -166,7 +198,7 @@ def main_create_synhetic_data(create_new_sample_set=False, train_gmm=True, seed=
         learn_lgb_model(path_to_CG_model)
     cg_trained_model = load_sklearn_model(path_to_CG_model)
 
-    generate_dataset(gmm_feature_list, cg_trained_model, fake_data_set_size=10000, create_key_features=True,
+    generate_dataset(gmm_feature_list, cg_trained_model, fake_data_set_size=fake_data_set_size, create_key_features=True,
                      train_gmm=train_gmm, create_new_sample_set=create_new_sample_set, seed=seed)
 
 
