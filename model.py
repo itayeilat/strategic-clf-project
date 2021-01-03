@@ -1,9 +1,6 @@
-from abc import ABC, abstractmethod
 from cost_functions import *
 from tqdm import tqdm
 import pandas as pd
-import pickle
-
 
 
 class TrainModel(ABC):
@@ -15,20 +12,20 @@ class TrainModel(ABC):
         :return: the prediction result
         """
 
-    # @abstractmethod
-    # def train(self, X, y, *args, **kwargs):
-    #     """
-    #
-    #     :param X: data to learn from
-    #     :param y: True values
-    #     """
-    # @abstractmethod
-    # def get_stratigic_new_feature(self, x: dict):
-    #     """
-    #
-    #     :param x: original feature of member. Must be dictionary!
-    #     :return: the new features.
-    #     """
+    @abstractmethod
+    def fit(self, X, y):
+        """
+
+        :param X: data to learn from
+        :param y: True values
+        """
+    @abstractmethod
+    def predict(self, X):
+        """
+
+        :param X: data to predict
+        :return: the new model prediction
+        """
 
 
 
@@ -46,6 +43,9 @@ class HardtAlgo(TrainModel):
             return
 
         return X.apply(apply_single_prdictive, axis=1)
+
+    def predict(self, X):
+        return self(X)
     ''''
     def fit(self, X: pd.DataFrame, y: pd.DataFrame):
 
@@ -91,14 +91,14 @@ class HardtAlgo(TrainModel):
                     self.min_si = s_i
                 t.update(1)
 
-    def dump(self, path_to_dump):
-        with open(path_to_dump, 'wb') as output_file:
-            pickle.dump(self, output_file, pickle.HIGHEST_PROTOCOL)
+    # def dump(self, path_to_dump):
+    #     with open(path_to_dump, 'wb') as output_file:
+    #         pickle.dump(self, output_file, pickle.HIGHEST_PROTOCOL)
 
-    @classmethod
-    def load_model(cls, model_path):
-        with open(model_path, 'rb') as model_file:
-            return pickle.load(model_file)
+    # @classmethod
+    # def load_model(cls, model_path):
+    #     with open(model_path, 'rb') as model_file:
+    #         return pickle.load(model_file)
 
 
 
