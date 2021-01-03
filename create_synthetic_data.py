@@ -1,9 +1,9 @@
 import pandas as pd
+import os
 from collections import Counter
 from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import GridSearchCV
-from train_member_clf import *
 import lightgbm as lgb
 import random
 from model import *
