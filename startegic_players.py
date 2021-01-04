@@ -13,22 +13,23 @@ def get_angle_between_two_vectors(vec1, vec2, result_in_degree=True):
     if result_in_degree:
         angle *= 180 / np.pi
     return angle
-    # np.arccos(a @ f.coef_[0] / (np.linalg.norm(a) * np.linalg.norm(f.coef_[0]))) * 180 / np.pi
 
 
 def visualize_projected_changed_df(before_change_df, after_change_df, features_to_project, title, f_weights, f_inter, label='LoanStatus',
                                    num_point_to_plot=100, dir_for_projection_images: str = '2D_projection_images',
                                    to_save=True, dir_name_for_saving_visualize=None):
     def apply_transform_for_2D(df: pd.DataFrame):
-        array_list = list()
-        axis_x_indecies = [0, 1, 2]
-        axis_y_indecies = [3, 4, 5]
-        for i in range(len(f_weights)):
-            if i in axis_x_indecies:
-                array_list.append([f_weights[i], 0])
-            else:
-                array_list.append([0, f_weights[i]])
-        transform_matrix = np.vstack(array_list)
+        # array_list = list()
+        # axis_x_indecies = [0, 1, 2]
+        # axis_y_indecies = [3, 4, 5]
+        # for i in range(len(f_weights)):
+        #     if i in axis_x_indecies:
+        #         array_list.append([f_weights[i], 0])
+        #     else:
+        #         array_list.append([0, f_weights[i]])
+        # transform_matrix = np.vstack(array_list)
+        transform_matrix = np.array([[f_weights[0], 0], [f_weights[1], 0], [f_weights[2], 0],
+                                     [0.5 * f_weights[3], 0.5 * f_weights[3]], [0, f_weights[4]], [0, f_weights[5]]])
         return df @ transform_matrix
 
     os.makedirs(dir_name_for_saving_visualize, exist_ok=True)
@@ -56,8 +57,10 @@ def visualize_projected_changed_df(before_change_df, after_change_df, features_t
         if i > num_point_to_plot:
             break
 
-    left_bound, right_bound = -1, 3
-    bottom_bound, up_bound = 1, 3
+    # left_bound, right_bound = -1, 3
+    # bottom_bound, up_bound = 1, 3
+    left_bound, right_bound = 1, 3.5
+    bottom_bound, up_bound = 0, 2
     t = np.arange(left_bound, right_bound, 0.2)
     plt.plot(t, -t - f_inter, color='blue')
     plt.xlim([left_bound, right_bound])
@@ -99,17 +102,18 @@ def train_loan_return_model(list_features_for_pred, binary_trained_model_path, t
     linear_model.fit(train_val_df[list_features_for_pred], train_val_df[target_label])
     y_test_pred = linear_model.predict(test_df[list_features_for_pred])
     acc = np.sum(y_test_pred == test_df[target_label]) / len(y_test_pred)
-    print(f'acc on pre2009 test:{acc}')
+    print(f'acc on not modify real test: {acc}')
     pickle.dump(linear_model, open(binary_trained_model_path, 'wb'))
+    return linear_model
 
 
-def strategic_modify_using_known_clf(orig_df: str, f, feature_list, cost_func: CostFunction, out_path=None):
+def strategic_modify_using_known_clf(orig_df: pd.DataFrame, f, feature_list, cost_func: CostFunction, out_path=None):
     modify_data = orig_df[feature_list].copy()
     with tqdm(total=len(orig_df)) as t:
         for (index, ex) in orig_df[feature_list].iterrows():
             x = np.array(ex)
             if f.predict(x.reshape(1, -1))[0] == -1:
-                z = cost_func.maximize_features_against_binary_model(x, f)
+                z = cost_func.maximize_features_against_binary_model(x, f, smart=False)
                 modify_data.loc[index] = z
             t.update(1)
     # insert other features that are not used for prediction but yet important:
@@ -123,14 +127,17 @@ def strategic_modify_using_known_clf(orig_df: str, f, feature_list, cost_func: C
 
 def create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, cost_factor, epsilon, retrain_model_loan_return=False, save_visualize_projected_changed=True):
     features_to_use = six_most_significant_features
+    real_test_f_star_loan_status = pd.read_csv(real_test_f_star_loan_status_path)
     if retrain_model_loan_return or os.path.exists(model_loan_returned_path) is False:
-        train_loan_return_model(features_to_use, model_loan_returned_path)
+        f = train_loan_return_model(features_to_use, model_loan_returned_path)
+    else:
+        f = load_model(model_loan_returned_path)
+        acc_on_not_modify = evaluate_model_on_test_set(real_test_f_star_loan_status, f, features_to_use)
+        print(f'acc on not modify real test:{acc_on_not_modify}')
 
-    f = load_model(model_loan_returned_path)
     f_weights, f_inter = f.coef_[0], f.intercept_
 
     weighted_linear_cost = MixWeightedLinearSumSquareCostFunction(a, cost_factor=cost_factor, epsilon=epsilon)
-    real_test_f_star_loan_status = pd.read_csv(real_test_f_star_loan_status_path)
     modify_full_information_test = strategic_modify_using_known_clf(real_test_f_star_loan_status, f, features_to_use,
                                                                     weighted_linear_cost, modify_full_information_real_test_path)
     visualize_projected_changed_df(real_test_f_star_loan_status, modify_full_information_test, features_to_use, 'real test',

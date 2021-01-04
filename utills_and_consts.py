@@ -50,7 +50,7 @@ result_folder_path = 'result'
 
 # a = np.array([0.5, 0.5, 1, -2, -0.5, 0.5]) #the a we use for logistic regression
 # a = np.array([0.1, 0.1, 1, -2, -0.1, 0.1])
-a = np.array([0.5, 0.5, 1.5, -3, -0.5, 0.5])
+a = 0.5 * np.array([0.5, 0.5, 1.5, -3, -0.5, 0.5])
 # a = np.array([0.21, 0.178, 1.3, -2.3, -0.14, 0.148]) # this is svm f
 # a = np.array([0.57323717, 0.7151804, 3.18898121, -5.54032394, -0.38288026, 0.54179837]) #the a that is f
 

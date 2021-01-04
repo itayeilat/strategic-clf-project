@@ -12,6 +12,7 @@ def get_hardt_model(cost_factor, train_path, force_train_hardt=False):
         print(f'training Hardt model')
         train_df = pd.read_csv(train_path)
         hardt_algo = HardtAlgo(WeightedLinearCostFunction(a[:len(feature_list_to_use)], cost_factor))
+
         hardt_algo.fit(train_df[feature_list_to_use], train_df['LoanStatus'])
         save_model(hardt_algo, hardt_model_path)
     else:
@@ -25,8 +26,9 @@ def run_strategic_full_info(train_hardt=False, cost_factor=7, epsilon=0.3):
     modify_test_df = create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, cost_factor=cost_factor, epsilon=epsilon)
 
     feature_list_to_use = six_most_significant_features
-    hardt_algo = get_hardt_model(cost_factor, train_path=real_train_val_f_star_loan_status_path, force_train_hardt=train_hardt)
-    # hardt_algo = HardtAlgo(WeightedLinearCostFunction(a[:len(feature_list_to_use)], cost_factor=cost_factor))
+    # hardt_algo = get_hardt_model(cost_factor, train_path=real_train_val_f_star_loan_status_path, force_train_hardt=train_hardt)
+    hardt_algo = get_hardt_model(cost_factor, train_path=real_train_val_f_star_loan_status_path,
+                                 force_train_hardt=train_hardt)
     test_df = pd.read_csv(real_test_f_star_loan_status_path)
     acc = evaluate_model_on_test_set(modify_test_df, hardt_algo, feature_list_to_use)
     print(f'acc on modify test: {acc}')
@@ -60,10 +62,10 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=10, epsilon=0.3
 
     def create_paths_and_dirs_for_random_friends_experiment():
         path_to_parent_folder = os.path.join(result_folder_path,
-                                          'changed_samples_by_gaming_random_friends_losns_status_new_sy')
+                                          'changed_samples_by_gaming_random_friends_losns_status')
         os.makedirs(path_to_parent_folder, exist_ok=True)
         path_to_base_output = os.path.join(path_to_parent_folder,
-                                        f'cost_factor={cost_factor}_epsilon={epsilon}f_hat_more_smaples')
+                                        f'cost_factor={cost_factor}_epsilon={epsilon}')
         path_to_friends_dict_dir = os.path.join(path_to_parent_folder, 'friends_dict')
         os.makedirs(path_to_friends_dict_dir, exist_ok=True)
         return path_to_parent_folder, path_to_base_output, path_to_friends_dict_dir
@@ -93,16 +95,19 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=10, epsilon=0.3
         print(hardt_acc)
         dict_result['hardt_friends_acc_list'].append(hardt_acc)
 
-    def plot_graph(title: str, x_label: str, y_label: str, x_data_list: list, y_data_list: list, graph_label_list: list,
-                   saving_path: str):
+    def plot_graph(title: str, x_label: str, y_label: str, x_data_list: list, y_data_list: list, saving_path: str, graph_label_list=None):
         plt.title(title)
         plt.xlabel(x_label)
         plt.xscale('symlog')
         plt.ylabel(y_label)
         color_list = ['-b', '-r']
-        for i in range(len(x_data_list)):
-            plt.plot(x_data_list[i], y_data_list[i], color_list[i], label=graph_label_list[i])
-        plt.legend(loc="upper right")
+        if graph_label_list is not None:
+            for i in range(len(x_data_list)):
+                plt.plot(x_data_list[i], y_data_list[i], color_list[i], label=graph_label_list[i])
+            plt.legend(loc="upper right")
+        else:
+            for i in range(len(x_data_list)):
+                plt.plot(x_data_list[i], y_data_list[i], color_list[i])
         plt.savefig(saving_path)
         plt.show()
 
@@ -120,36 +125,31 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=10, epsilon=0.3
         saving_path = os.path.join(base_output_path, 'num_improved_vs_num_friends.png')
         plot_graph(title='number players that improved on model vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='num improved', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model'], saving_path=saving_path)
+                   y_label='num improved', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
 
         y_data_list = [dict_result['num_degrade_list_f']]
         saving_path = os.path.join(base_output_path, 'num_degrade_vs_num_friends.png')
         plot_graph(title='number players that degrade on model vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='num degrade', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model'], saving_path=saving_path)
+                   y_label='num degrade', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
 
         y_data_list = [dict_result['avg_acc_f_hat']]
         saving_path = os.path.join(base_output_path, 'f_hat_avg_acc_vs_num_friends.png')
         plot_graph(title='f_hat_avg_acc vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='avg acc', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model'], saving_path=saving_path)
+                   y_label='avg acc', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
 
         y_data_list = [dict_result['l2 dist']]
         saving_path = os.path.join(base_output_path, 'f_hat_dist_f_vs_num_friends.png')
         plot_graph(title='f_hat dist from f vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='dist l2', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model'], saving_path=saving_path)
+                   y_label='dist l2', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
 
         y_data_list = [dict_result['angel_f_f_hat']]
         saving_path = os.path.join(base_output_path, 'angle_between_f_hat_and_f_vs_num_friends.png')
         plot_graph(title='angle between f_hat and f vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='angle', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model'], saving_path=saving_path)
+                   y_label='angle', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
 
 
     hardt_algo = get_hardt_model(cost_factor, real_train_f_star_loan_status_path, train_hadart)
@@ -168,7 +168,7 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=10, epsilon=0.3
         print(num_friend)
         member_friend_dict_path = os.path.join(friends_dict_dir_path, f'member_friends_{num_friend}friends.json')
         member_dict = create_member_friends_dict(num_friend, real_train_val_f_loan_status,
-                                                  real_test_f_star_df, member_friend_dict_path, force_to_crate=True) #todo: change it to false
+                                                  real_test_f_star_df, member_friend_dict_path, force_to_crate=False) #todo: change it to false
 
         cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor)
         friends_modify_strategic_data, f_hat_acc, avg_l2_f_dist, avg_angle = strategic_modify_learn_from_friends(real_test_f_star_df,
@@ -193,9 +193,10 @@ def create_main_folders():
     os.makedirs(models_folder_path, exist_ok=True)
 
 if __name__ == '__main__':
+    cost_factor = 10
     # create_main_folders()
     # main_create_synthetic_data()
-    run_strategic_full_info(train_hardt=False, cost_factor=6, epsilon=0.5)
+    run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=0.3)
     # strategic_random_friends_info()
     print(10)
 
@@ -209,7 +210,7 @@ if __name__ == '__main__':
     #
     # print(acc)
 
-    strategic_random_friends_info(train_hadart=False, cost_factor=6, epsilon=0.5)
+    strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=0.3)
     # print(5)
     # strategic_random_friends_info(train_hadart=False, cost_factor=5, epsilon=0.3)
     # print(3)

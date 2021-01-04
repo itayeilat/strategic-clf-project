@@ -64,11 +64,15 @@ class WeightedLinearCostFunction(SeparableCost):
         return self.cost_factor * self.a.T @ x
 
 
+def check_result(trained_model, new_x, cost):
+    return trained_model.predict(new_x.value.reshape(1, -1))[0] == 1 and cost.value < 2
+
+
 class MixWeightedLinearSumSquareCostFunction(CostFunction):
     def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=7):
         self.a = weighted_vector
         self.epsilon = epsilon
-        # some values for statistic:
+        # some values for statistic and debugging:
         self.num_changed = 0  # the number of example that his changed because of solving the minimization problem
         self.num_examples = 0
         self.num_above_trash = 0
@@ -81,46 +85,67 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         self.num_changed_on_f_hat_not_f = 0
         self.cost_left_avg = 0
         self.sub_f_res_f_hat_res = 0
+        # self.num_could_improved_on_f_not_f_hat = 0
 
     def __call__(self, z: np.array, x: np.array):
         return max((1 - self.epsilon) * self.a.T @ (z - x) + self.epsilon * np.sum((z - x) ** 2), 0)
 
-    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=1e-9):
-        x_tag = cp.Variable(len(x))
-        func_to_solve = cp.Minimize(self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon *
-                                               cp.sum((x_tag - x) ** 2)))
-
-        constrains = [x_tag @ trained_model.coef_[0] >= -trained_model.intercept_ + tolerance]
+    def solve_problem(self, model, x, tol):
+        x_t = cp.Variable(len(x))
+        func_to_solve = cp.Minimize(
+            self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_t - x), 0) + self.epsilon *
+                                cp.sum((x_t - x) ** 2)))
+        constrains = [x_t @ model.coef_[0] >= -model.intercept_ + tol]
         if len(x) > 5:
-            constrains.append(x_tag[5] >= x[5])  # credit history can't get lower.
+            constrains.append(x_t[5] >= x[5])  # credit history can't get lower.
         if len(x) > 4:
-            constrains.append(x_tag[4] >= x[4])  # total number of inquiries can't get lower.
+            constrains.append(x_t[4] >= x[4])  # total number of inquiries can't get lower.
         prob = cp.Problem(func_to_solve, constrains)
         prob.solve()
-        if x_tag is None:
+        if x_t is None:
             print("couldn't solve this problem")
-            return x
-        cost_result = cp.maximum((1 - self.epsilon) * self.a.T @ (x_tag - x), 0) + self.epsilon * cp.sum((x_tag - x) ** 2) # it look like cvxpy has bug that why I calculate again..
-        cost_result *= self.cost_factor
+            return
+        cost = cp.maximum((1 - self.epsilon) * self.a.T @ (x_t - x), 0) + self.epsilon * cp.sum(
+            (x_t - x) ** 2)  # it look like cvxpy has bug that why I calculate again..
+        cost *= self.cost_factor
+        return x_t, cost
+
+    def update_statistic_and_return_correct_x(self, x: np.ndarray, x_tag: cp.Variable, cost_result, trained_model):
         self.max_cost = max(self.max_cost, cost_result.value)
         self.max_separable_cost = max(self.max_separable_cost, (1 - self.epsilon) * self.a.T @ (x_tag.value - x))
-
         self.num_examples += 1
         if trained_model.predict(x_tag.value.reshape(1, -1))[0] == 1 and cost_result.value < 2:
             self.num_changed += 1
             if self.f.predict(x_tag.value.reshape(1, -1))[0] == -1:
                 self.num_changed_on_f_hat_not_f += 1
                 self.cost_left_avg += 2 - cost_result.value
-                self.sub_f_res_f_hat_res += (x_tag.value @ self.f.coef_[0] + self.f.intercept_ - (x_tag.value @ trained_model.coef_[0] + trained_model.intercept_))
+                self.sub_f_res_f_hat_res += (x_tag.value @ self.f.coef_[0] + self.f.intercept_ - (
+                            x_tag.value @ trained_model.coef_[0] + trained_model.intercept_))
             if self.a.T @ (x_tag.value - x) > self.trash:
                 self.num_above_trash += 1
-
             return x_tag.value
-
         else:
+
             return x
 
+    def smart_maximize_features_against_binary_model(self, x: np.array, trained_model):
 
+        x_tag, cost_result = self.solve_problem(trained_model, x, 0.1)
+        if not check_result(trained_model, x_tag, cost_result):
+            x_tag, cost_result = self.solve_problem(trained_model, x, 0.01)
+            if not check_result(trained_model, x_tag, cost_result):
+                x_tag, cost_result = self.solve_problem(trained_model, x, 0.001)
+                if not check_result(trained_model, x_tag, cost_result):
+                    x_tag, cost_result = self.solve_problem(trained_model, x, 0.00000001)
+
+        return self.update_statistic_and_return_correct_x(x, x_tag, cost_result, trained_model)
+
+
+    def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=0.00001, smart=False):
+        if smart:
+            return self.smart_maximize_features_against_binary_model(x, trained_model)
+        x_tag, cost_result = self.solve_problem(trained_model, x, tolerance)
+        return self.update_statistic_and_return_correct_x(x, x_tag, cost_result, trained_model)
 
     def get_statistic_on_num_change(self):
         calc_percent = lambda x: 100 * x /self.num_examples
@@ -135,6 +160,7 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
                 f'cost left avg according to num changed on f_hat but not f: {self.cost_left_avg / self.num_changed_on_f_hat_not_f}\n'
                 f'avg sub f and f_hat: {self.sub_f_res_f_hat_res/ self.num_changed_on_f_hat_not_f}'
             )
+            # print(f'the number that could improved on f but not f_hat {self.num_could_improved_on_f_not_f_hat}')
 
 
 # class SumSquareCostFunction(CostFunction):
