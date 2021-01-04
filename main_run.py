@@ -197,24 +197,5 @@ if __name__ == '__main__':
     # create_main_folders()
     # main_create_synthetic_data()
     run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=0.3)
-    # strategic_random_friends_info()
     print(10)
-
-
-    # train_val_df = pd.read_csv(real_train_val_f_star_loan_status_path, nrows=50)
-    # test_df = pd.read_csv(real_test_f_star_loan_status_path)
-    # f = load_model(model_loan_returned_path)
-    # f_hat = LinearSVC(penalty='l2', random_state=42, max_iter=1000).fit(train_val_df[six_most_significant_features], f.predict(train_val_df[six_most_significant_features]))
-    #
-    # acc = np.sum(f_hat.predict(test_df[six_most_significant_features]) == f.predict(test_df[six_most_significant_features])) / len(test_df)
-    #
-    # print(acc)
-
     strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=0.3)
-    # print(5)
-    # strategic_random_friends_info(train_hadart=False, cost_factor=5, epsilon=0.3)
-    # print(3)
-    # strategic_random_friends_info(train_hadart=False, cost_factor=3, epsilon=0.3)
-    # print(0.5)
-    # strategic_random_friends_info(train_hadart=False, cost_factor=0.5, epsilon=0.3)
-    # strategic_random_friends_info(train_hadart=False, cost_factor=0.5, epsilon=0.1)
