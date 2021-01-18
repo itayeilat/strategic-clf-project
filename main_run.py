@@ -302,60 +302,12 @@ def create_main_folders():
     os.makedirs(models_folder_path, exist_ok=True)
 
 
-def plot_hist(data, name):
-    plt.hist(data, bins=100)
-    plt.title(name)
-    plt.savefig(os.path.join(result_folder_path, name + '.png'))
-    plt.show()
-
-
-def create_histograms(cost_factor):
-    # train_val_df = pd.read_csv(real_train_val_f_star_loan_status_path)[six_most_significant_features]
-    test_df = pd.read_csv(real_test_f_star_loan_status_path)[six_most_significant_features]
-    f = load_model(svm_model_loan_returned_path)
-    data = test_df @ f.coef_[0] + f.intercept_
-    neg_d = data[data < 0]
-    plot_hist(neg_d, 'test that is neg')
-    plot_hist(data, 'f_hist_on_test')
-    hardt = get_hardt_model(cost_factor, real_train_val_f_star_loan_status_path, force_train_hardt=False)
-    data = test_df @ a
-    plot_hist(data, 'hardt_hist_on_test')
-    modify_full_information_test = pd.read_csv(modify_full_information_real_test_path)[six_most_significant_features]
-    data = modify_full_information_test @ f.coef_[0] + f.intercept_
-    neg_d = data[data < 0]
-    plot_hist(neg_d, 'modify test that is still neg')
-    print(f'number that is predicted as negetive {np.sum(f.predict(modify_full_information_test) == -1)}')
-    plot_hist(data, 'f_hist_on_modify_full_info_test')
-    data = modify_full_information_test @ a
-    plot_hist(data, 'hardt_hist_on_modify_full_info_test')
 
 
 if __name__ == '__main__':
     cost_factor = 5
     epsilon = 0.2
 
-    # test_df = pd.read_csv(real_test_f_star_loan_status_path)
-    # pos_test = test_df[test_df['LoanStatus'] == 1][six_most_significant_features]
-    # cost_pos_test = pos_test @ a * cost_factor
-    # neg_test = test_df[test_df['LoanStatus'] == -1][six_most_significant_features]
-    # cost_neg_test = neg_test @ a * cost_factor
-    # plt.hist(cost_pos_test, 20, label='positive loan status test', alpha=0.7)
-    # plt.hist(cost_neg_test, 20, label='negetive loan status test', alpha=0.7)
-    # plt.legend(loc='upper right')
-    # plt.title('test positive negetive loan status')
-    # plt.savefig(os.path.join(result_folder_path, 'cost_histograms_test.png'))
-    # plt.show()
-    # hardt_model = get_hardt_model(cost_factor, real_train_val_f_star_loan_status_path, False)
-    # pos_test = test_df[hardt_model(test_df[six_most_significant_features]) == 1][six_most_significant_features]
-    # cost_pos_test = pos_test @ a * cost_factor
-    # neg_test = test_df[hardt_model(test_df[six_most_significant_features]) == -1][six_most_significant_features]
-    # cost_neg_test = neg_test @ a * cost_factor
-    # plt.hist(cost_pos_test, 20, label='positive loan status test', alpha=0.7)
-    # plt.hist(cost_neg_test, 20, label='negetive loan status test', alpha=0.7)
-    # plt.legend(loc='upper right')
-    # plt.title('test positive negetive loan status')
-    # plt.savefig(os.path.join(result_folder_path, 'cost_histograms_hradt_result_test_no_gaming.png'))
-    # plt.show()
 
     # run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=epsilon)
 
