@@ -10,6 +10,7 @@ from model import *
 from utills_and_consts import *
 import json
 
+
 def learn_lgb_model(out_path, target_label='CreditGrade'):
     def evaluate(model, training_df, testing_df, label, list_for_pred):
         model.fit(training_df[list_for_pred], training_df[label])
@@ -49,9 +50,6 @@ def learn_lgb_model(out_path, target_label='CreditGrade'):
     all_data = pd.concat([train_df, val_df, test_df])
     lgb_model.fit(all_data[feature_list_for_pred], all_data[target_label])
     pickle.dump(lgb_model, open(out_path, 'wb'))
-
-
-
 
 
 def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
@@ -115,35 +113,37 @@ def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
 
     # The code of function generate_dataset
     path_list_to_data = [real_train_path, real_val_path, real_test_path]
-    real_data = pd.concat([pd.read_csv(path)[feature_list] for path in path_list_to_data])
+    real_data = pd.concat([pd.read_csv(path)[feature_list] for path in path_list_to_data], ignore_index=True)
     gmm_model = get_gmm_model()
     synthetic_data = create_synthetic()
-    if split_synthetic_set:
-        synthetic_train_df, synthetic_val_df, synthetic_test_df = split_df(synthetic_data)
-        synthetic_train_df.to_csv(synthetic_train_path)
-        synthetic_val_df.to_csv(synthetic_val_path)
-        synthetic_test_df.to_csv(synthetic_test_path)
-    else:
-        synthetic_data.to_csv(synthetic_set_to_sample_from_path)
+    # todo: if we create synthertic data create their path..
+    # if split_synthetic_set:
+    #     synthetic_train_df, synthetic_val_df, synthetic_test_df = split_df(synthetic_data)
+    #     synthetic_train_df.to_csv(synthetic_train_path)
+    #     synthetic_val_df.to_csv(synthetic_val_path)
+    #     synthetic_test_df.to_csv(synthetic_test_path)
+    # else:
+    #     synthetic_data.to_csv(synthetic_set_to_sample_from_path)
 
 
 def apply_transform_creditgrade_loan_returned(credit_grade):
-    guss = random.uniform(0, 1)
-    loan_tresh = max(0, -0.2942 * credit_grade + 1.4592)
-    return -1 if guss < loan_tresh else 1
+    loan_tresh = 4  # if we say that any number that is lower than 3 get -1 loan returned that means 36.68% didn't
+                    # return like in the reality.. but if we say lower than 4 we get 58.297% and it much more balanced
+    return 1 if credit_grade >= loan_tresh else -1
 
 
-def sample_all_classes_in_list(label_friends_df, num_friends, num_class=2):
+
+def sample_all_classes_in_list(labels_friends, num_friends, num_class=2):
     index_friends_list = list()
     classes_set = set()
     while len(classes_set) < num_class:
-        index_friends_list = random.sample(range(len(label_friends_df)), num_friends)
-        classes_set = set(label_friends_df[index_friends_list])
+        index_friends_list = random.sample(range(len(labels_friends)), num_friends)
+        classes_set = set(labels_friends[index_friends_list])
     return index_friends_list
 
 
-def create_member_friends_dict(num_friends, label_friends_df, df_to_create_list_friend_for, member_dict_path, force_to_crate=False):
-    if os.path.exists(member_dict_path) is False or force_to_crate:
+def create_member_friends_dict(num_friends, label_friends_df, df_to_create_list_friend_for, member_dict_path=None, force_to_crate=False):
+    if force_to_crate or os.path.exists(member_dict_path) is False:
         member_dict = dict()
         random.seed(8)
         for mem_key, data in df_to_create_list_friend_for.groupby('MemberKey'):

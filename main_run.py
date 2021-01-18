@@ -1,13 +1,12 @@
 import json
-import matplotlib.pyplot as plt
-from startegic_players import *
-from create_synthetic_data import main_create_synthetic_data, create_member_friends_dict
+from strategic_players import *
+from create_synthetic_data import create_member_friends_dict
 from model import *
 
 
-def get_hardt_model(cost_factor, train_path, force_train_hardt=False):
+def get_hardt_model(cost_factor, train_path, force_train_hardt=False,
+                    feature_list_to_use=six_most_significant_features):
     hardt_model_path = os.path.join(models_folder_path, f'Hardt_cost_factor={cost_factor}')
-    feature_list_to_use = six_most_significant_features
     if force_train_hardt or os.path.exists(hardt_model_path) is False:
         print(f'training Hardt model')
         train_df = pd.read_csv(train_path)
@@ -20,182 +19,345 @@ def get_hardt_model(cost_factor, train_path, force_train_hardt=False):
     return hardt_algo
 
 
-def run_strategic_full_info(train_hardt=False, cost_factor=7, epsilon=0.3):
+def run_strategic_full_info(train_hardt=False, cost_factor=7, epsilon=0.2,
+                            feature_list_to_use=six_most_significant_features):
     dir_name_for_saving_visualize = os.path.join(result_folder_path, 'full_information_strategic')
     os.makedirs(dir_name_for_saving_visualize, exist_ok=True)
-    modify_test_df = create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, cost_factor=cost_factor, epsilon=epsilon)
+    svm_clf = get_svm_loan_return_model(svm_model_loan_returned_path, feature_list_to_use)
+    modify_svm_test_df = create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize,
+                                                                    cost_factor=cost_factor, epsilon=epsilon,
+                                                                    f=svm_clf, clf_name='SVM')
+    modify_svm_test_df.to_csv(os.path.join(dir_name_for_saving_visualize, 'modify_on_svm_test_df.csv'))
 
-    feature_list_to_use = six_most_significant_features
-    # hardt_algo = get_hardt_model(cost_factor, train_path=real_train_val_f_star_loan_status_path, force_train_hardt=train_hardt)
     hardt_algo = get_hardt_model(cost_factor, train_path=real_train_val_f_star_loan_status_path,
                                  force_train_hardt=train_hardt)
-    test_df = pd.read_csv(real_test_f_star_loan_status_path)
-    acc = evaluate_model_on_test_set(modify_test_df, hardt_algo, feature_list_to_use)
-    print(f'acc on modify test: {acc}')
-    acc = evaluate_model_on_test_set(test_df, hardt_algo, feature_list_to_use)
-    print(f'acc on not modify test: {acc}')
+    modify_hardt_test_df = create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize,
+                                                                      cost_factor=cost_factor, epsilon=epsilon,
+                                                                      f=hardt_algo, clf_name='Hardt')
+    modify_hardt_test_df.to_csv(os.path.join(dir_name_for_saving_visualize, 'modify_on_hardt_test_df.csv'))
 
 
-def strategic_random_friends_info(train_hadart=True, cost_factor=10, epsilon=0.3):
+def get_datasets_and_f_grade(f_svm, f_hardt, train_path, test_path, feature_list_to_use):
+    test_f_star = pd.read_csv(test_path)
+    train_f_star = pd.read_csv(train_path)
+    train_svm_loan_status = f_svm.predict(train_f_star[feature_list_to_use])
+    test_svm_loan_status = f_svm.predict(test_f_star[feature_list_to_use])
+    train_hardt_loan_status = f_hardt.predict(train_f_star[feature_list_to_use])
+    test_hardt_loan_status = f_hardt.predict(test_f_star[feature_list_to_use])
+
+    return train_f_star, test_f_star, train_svm_loan_status, test_svm_loan_status, train_hardt_loan_status, test_hardt_loan_status
+
+
+def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
+                                  feature_list_to_use=six_most_significant_features):
     def init_dict_result():
         dict_result = dict()
+        # dict_result['number_of_friends_to_learn_list'] = [4, 6, 10, 50, 100, 200, 500, 1000, 2000, 4000, 7000, 10000,
+        #                                                   15000]
         dict_result['number_of_friends_to_learn_list'] = [4, 6, 10, 50, 100, 200, 500, 1000, 2000, 4000, 7000, 10000,
-                                                          15000]
+                                                           15000]
         dict_result['hardt_friends_acc_list'] = []
-        dict_result['linear_model_friends_acc_list'] = []
-        dict_result['num_improved_list_f'] = []
-        dict_result['num_degrade_list_f'] = []
-        dict_result['num_improved_hardt_list'] = []
-        dict_result['num_degrade_hardt_list'] = []
-        dict_result['avg_acc_f_hat'] = []
-        dict_result['l2 dist'] = []
-        dict_result['angel_f_f_hat'] = []
+        dict_result['svm_model_friends_acc_list'] = []
+        dict_result['num_improved_list_and_y_pos_svm'] = []
+        dict_result['num_degrade_list_and_y_pos_svm'] = []
+        dict_result['num_improved_list_and_y_pos_hardt'] = []
+        dict_result['num_degrade_list_and_y_pos_hardt'] = []
+        dict_result['num_degrade_list_and_y_pos_hardt'] = []
+
+        dict_result['num_improved_list_and_y_neg_svm'] = []
+        dict_result['num_degrade_list_and_y_neg_svm'] = []
+        dict_result['num_improved_list_and_y_neg_hardt'] = []
+        dict_result['num_degrade_list_and_y_neg_hardt'] = []
+
+
+
+
+        # dict_result['num_improved_hardt_full_info_game_list'] = []
+        # dict_result['num_degrade_hardt_full_info_game_list'] = []
+        dict_result['avg acc f_hat svm'] = []
+        dict_result['avg acc f_hat hardt'] = []
+        dict_result['var acc f_hat svm'] = []
+        dict_result['var acc f_hat hardt'] = []
+        dict_result['l2 f_hat svm dist'] = []
+        dict_result['l2 f_hat hardt dist'] = []
+        dict_result['var l2 f_hat svm dist'] = []
+        dict_result['var l2 f_hat hardt dist'] = []
+        dict_result['avg_angel_svm_f_hat'] = []
+        dict_result['avg_angle_hardt_f_hat'] = []
+        dict_result['var_angel_svm_f_hat'] = []
+        dict_result['var_angel_hardt_f_hat'] = []
+        dict_result['random_model_acc_list'] = []
+        dict_result['number_that_moved_svm_list'] = []
+        dict_result['number_that_moved_hardt_list'] = []
         return dict_result
 
-    def get_datasets_and_f_grade(f_model, train_path, test_path):
-        #todo: this function might be outside strategic_random_friends_info
-        test_f_star = pd.read_csv(test_path)
-        train_f_star = pd.read_csv(train_path)
-        train_f_loan_status = f_model.predict(train_f_star[feature_list_to_use])
-        test_f_loan_status = f_model.predict(test_f_star[feature_list_to_use])
-        return train_f_star, test_f_star, train_f_loan_status, test_f_loan_status
-
-    def create_paths_and_dirs_for_random_friends_experiment():
-        path_to_parent_folder = os.path.join(result_folder_path,
-                                          'changed_samples_by_gaming_random_friends_losns_status')
-        os.makedirs(path_to_parent_folder, exist_ok=True)
-        path_to_base_output = os.path.join(path_to_parent_folder,
-                                        f'cost_factor={cost_factor}_epsilon={epsilon}')
-        path_to_friends_dict_dir = os.path.join(path_to_parent_folder, 'friends_dict')
-        os.makedirs(path_to_friends_dict_dir, exist_ok=True)
-        return path_to_parent_folder, path_to_base_output, path_to_friends_dict_dir
+    def create_paths_and_dirs_for_random_friends_experiment(
+            experiment='changed_samples_by_gaming_random_friends_losns_status'):
+        path_to_parent_folder = safe_create_folder(result_folder_path, experiment)
+        path_to_base_output = safe_create_folder(path_to_parent_folder, f'cost_factor={cost_factor}_epsilon={epsilon}')
+        path_to_friends_dict_dir = safe_create_folder(path_to_base_output, 'friends_dict')
+        svm_folder = safe_create_folder(path_to_base_output, 'svm_results')
+        hardt_folder = safe_create_folder(path_to_base_output, 'hardt_results')
+        return path_to_parent_folder, path_to_base_output, path_to_friends_dict_dir, svm_folder, hardt_folder
 
     def update_dict_result():
-        dict_result['angel_f_f_hat'].append(avg_angle)
-        dict_result['l2 dist'].append(avg_l2_f_dist)
-        dict_result['avg_acc_f_hat'].append(f_hat_acc)
-        f_pred_on_modify = f.predict(friends_modify_strategic_data[feature_list_to_use])
-        dict_result['num_improved_list_f'].append(np.sum(f_pred_on_modify > test_pred_loans_status_f).item())
-        dict_result['num_degrade_list_f'].append(np.sum(f_pred_on_modify < test_pred_loans_status_f).item())
+        dict_result['avg_angel_svm_f_hat'].append(data_svm_res_dict['angle_f_hat_f_avg'])
+        dict_result['avg_angle_hardt_f_hat'].append(data_hardt_res_dict['angle_f_hat_f_avg'])
+        dict_result['l2 f_hat svm dist'].append(data_svm_res_dict['l2_norm_avg'])
+        dict_result['l2 f_hat hardt dist'].append(data_hardt_res_dict['l2_norm_avg'])
+        dict_result['avg acc f_hat svm'].append(data_svm_res_dict['acc_avg'])
+        dict_result['avg acc f_hat hardt'].append(data_hardt_res_dict['acc_avg'])
+        dict_result['var acc f_hat svm'].append(data_svm_res_dict['acc_var'])
+        dict_result['var acc f_hat hardt'].append(data_hardt_res_dict['acc_var'])
+        dict_result['var_angel_svm_f_hat'].append(data_svm_res_dict['angle_f_hat_f_var'])
+        dict_result['var_angel_hardt_f_hat'].append(data_hardt_res_dict['angle_f_hat_f_var'])
+        dict_result['var l2 f_hat svm dist'].append(data_svm_res_dict['l2_norm_var'])
+        dict_result['var l2 f_hat hardt dist'].append(data_hardt_res_dict['l2_norm_var'])
 
-        f_acc = np.sum(f_pred_on_modify == friends_modify_strategic_data['LoanStatus']).item() / len(
-            friends_modify_strategic_data)
-        dict_result['linear_model_friends_acc_list'].append(f_acc)
-        print(f_acc)
 
-        hardt_pred_loan_status = hardt_algo(friends_modify_strategic_data[feature_list_to_use])
-        dict_result['num_improved_hardt_list'].append(
-            np.sum(hardt_pred_loan_status > test_pred_loans_status_f).item())
+        test_size = len(real_test_f_star_df)
+        f_svm_pred_on_svm_modify = f_svm.predict(friends_modify_on_svm_strategic_data[feature_list_to_use])
+        dict_result['num_improved_list_and_y_pos_svm'].append(
+            100 * 1/ test_size * np.sum((f_svm_pred_on_svm_modify > test_pred_loans_status_svm) &
+                                        (real_test_f_star_df['LoanStatus'] == 1)).item())
+        dict_result['num_improved_list_and_y_neg_svm'].append(
+            100 * 1/ test_size * np.sum((f_svm_pred_on_svm_modify > test_pred_loans_status_svm) &
+                                        (real_test_f_star_df['LoanStatus'] == -1)).item())
 
-        dict_result['num_degrade_hardt_list'].append(
-            np.sum(hardt_pred_loan_status < test_pred_loans_status_f).item())
+        dict_result['num_degrade_list_and_y_pos_svm'].append(
+            100 * 1 / test_size * np.sum((f_svm_pred_on_svm_modify < test_pred_loans_status_svm) &
+                                        (real_test_f_star_df['LoanStatus'] == 1)).item())
+        dict_result['num_degrade_list_and_y_neg_svm'].append(
+            100 * 1 / test_size * np.sum((f_svm_pred_on_svm_modify < test_pred_loans_status_svm) &
+                                         (real_test_f_star_df['LoanStatus'] == -1)).item())
 
-        hardt_acc = np.sum(hardt_pred_loan_status == friends_modify_strategic_data['LoanStatus']).item() / len(
-            friends_modify_strategic_data)
+        f_acc = np.sum(f_svm_pred_on_svm_modify == friends_modify_on_svm_strategic_data['LoanStatus']).item() / len(
+            friends_modify_on_svm_strategic_data)
+        dict_result['svm_model_friends_acc_list'].append(f_acc)
+        print(f'svm acc: {f_acc}')
+
+        random_model = RandomModel()
+        dict_result['random_model_acc_list'].append(
+            evaluate_model_on_test_set(real_test_f_star_df, random_model, feature_list_to_use))
+
+        f_hardt_pred_on_hardt_modify = hardt_algo(friends_modify_on_hardt_strategic_data[feature_list_to_use])
+
+        dict_result['num_improved_list_and_y_pos_hardt'].append(
+            100 * 1 / test_size * np.sum((f_hardt_pred_on_hardt_modify > test_pred_loans_status_hardt) & (real_test_f_star_df['LoanStatus'] == 1)).item())
+        dict_result['num_improved_list_and_y_neg_hardt'].append(
+            100 * 1 / test_size * np.sum((f_hardt_pred_on_hardt_modify > test_pred_loans_status_hardt) & (
+                        real_test_f_star_df['LoanStatus'] == -1)).item())
+
+        dict_result['num_degrade_list_and_y_pos_hardt'].append(
+            100 * 1 / test_size * np.sum((f_hardt_pred_on_hardt_modify < test_pred_loans_status_hardt) & (
+                        real_test_f_star_df['LoanStatus'] == 1)).item())
+        dict_result['num_degrade_list_and_y_neg_hardt'].append(
+            100 * 1 / test_size * np.sum((f_hardt_pred_on_hardt_modify < test_pred_loans_status_hardt) & (
+                    real_test_f_star_df['LoanStatus'] == -1)).item())
+        hardt_acc = np.sum(
+            f_hardt_pred_on_hardt_modify == friends_modify_on_hardt_strategic_data['LoanStatus']).item() / len(
+            friends_modify_on_svm_strategic_data)
         print(hardt_acc)
         dict_result['hardt_friends_acc_list'].append(hardt_acc)
-
-    def plot_graph(title: str, x_label: str, y_label: str, x_data_list: list, y_data_list: list, saving_path: str, graph_label_list=None):
-        plt.title(title)
-        plt.xlabel(x_label)
-        plt.xscale('symlog')
-        plt.ylabel(y_label)
-        color_list = ['-b', '-r']
-        if graph_label_list is not None:
-            for i in range(len(x_data_list)):
-                plt.plot(x_data_list[i], y_data_list[i], color_list[i], label=graph_label_list[i])
-            plt.legend(loc="upper right")
-        else:
-            for i in range(len(x_data_list)):
-                plt.plot(x_data_list[i], y_data_list[i], color_list[i])
-        plt.savefig(saving_path)
-        plt.show()
+        dict_result['number_that_moved_svm_list'].append(100 * 1 / test_size * data_svm_res_dict['number_moved'])
+        dict_result['number_that_moved_hardt_list'].append(100 * 1 / test_size * data_hardt_res_dict['number_moved'])
 
     def plot_dict_result_graph():
-        x_data_list = [dict_result['number_of_friends_to_learn_list'], dict_result['number_of_friends_to_learn_list']]
-        y_data_list = [dict_result['linear_model_friends_acc_list'], dict_result['hardt_friends_acc_list']]
+        x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(2)]
+        y_data_list = [dict_result['svm_model_friends_acc_list'], dict_result['hardt_friends_acc_list']]
         saving_path = os.path.join(base_output_path, 'accuracy_vs_num_friends.png')
         plot_graph(title='accuracy vs number of random friends to learn',
-                   x_label='accuracy vs number of random friend to learn',
+                   x_label='number of random friend to learn',
                    y_label='accuracy', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['f linear model', 'Hardt model'], saving_path=saving_path)
+                   graph_label_list=['svm model', 'Hardt model'], saving_path=saving_path)
 
-        x_data_list = [dict_result['number_of_friends_to_learn_list']]
-        y_data_list = [dict_result['num_improved_list_f']]
-        saving_path = os.path.join(base_output_path, 'num_improved_vs_num_friends.png')
-        plot_graph(title='number players that improved on model vs number of random friends to learn',
-                   x_label='number of friends',
-                   y_label='num improved', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
+        x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(2)]
+        y_data_list = [dict_result['num_improved_list_and_y_pos_svm'], dict_result['num_improved_list_and_y_pos_hardt']]
+        saving_path = os.path.join(base_output_path, 'num_pos_label_improved_vs_num_friends.png')
+        plot_graph(title='percent players that with positive label and improved on model vs number of random friends to learn',
+                   x_label='number of friends', y_label='percent improved', x_data_list=x_data_list,
+                   y_data_list=y_data_list,
+                   graph_label_list=['improved on svm model', 'improved on Hardt model'], saving_path=saving_path)
 
-        y_data_list = [dict_result['num_degrade_list_f']]
-        saving_path = os.path.join(base_output_path, 'num_degrade_vs_num_friends.png')
-        plot_graph(title='number players that degrade on model vs number of random friends to learn',
-                   x_label='number of friends',
-                   y_label='num degrade', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
+        x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(2)]
+        y_data_list = [dict_result['num_improved_list_and_y_neg_svm'], dict_result['num_improved_list_and_y_neg_hardt']]
+        saving_path = os.path.join(base_output_path, 'num_neg_label_improved_vs_num_friends.png')
+        plot_graph(
+            title='percent players that with negative label and improved on model vs number of random friends to learn',
+            x_label='number of friends', y_label='percent improved', x_data_list=x_data_list,
+            y_data_list=y_data_list,
+            graph_label_list=['improved on svm model', 'improved on Hardt model'], saving_path=saving_path)
 
-        y_data_list = [dict_result['avg_acc_f_hat']]
+        y_data_list = [dict_result['num_degrade_list_and_y_pos_svm'], dict_result['num_degrade_list_and_y_pos_hardt']]
+        saving_path = os.path.join(base_output_path, 'num_pos_label_degrade_vs_num_friends.png')
+        plot_graph(title='percent players that with positive label and degrade on model vs number of random friends to learn',
+                   x_label='number of friends', y_label='percent degrade', x_data_list=x_data_list, y_data_list=y_data_list,
+                   graph_label_list=['degrade on svm model', 'degrade on Hardt model'], saving_path=saving_path)
+
+        y_data_list = [dict_result['num_degrade_list_and_y_neg_svm'], dict_result['num_degrade_list_and_y_neg_hardt']]
+        saving_path = os.path.join(base_output_path, 'num_neg_label_degrade_vs_num_friends.png')
+        plot_graph(
+            title='percent players that with negative label and degrade on model vs number of random friends to learn',
+            x_label='number of friends', y_label='percent degrade', x_data_list=x_data_list, y_data_list=y_data_list,
+            graph_label_list=['degrade on svm model', 'degrade on Hardt model'], saving_path=saving_path)
+
+        y_data_list = [dict_result['avg acc f_hat svm'], dict_result['avg acc f_hat hardt']]
         saving_path = os.path.join(base_output_path, 'f_hat_avg_acc_vs_num_friends.png')
-        plot_graph(title='f_hat_avg_acc vs number of random friends to learn',
+        var_lists = [dict_result['var acc f_hat svm'], dict_result['var acc f_hat hardt']]
+        plot_graph(title=r'$\^{f}$ avg acc vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='avg acc', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
+                   y_label='avg acc', x_data_list=x_data_list, y_data_list=y_data_list,
+                   graph_label_list=['svm model', 'Hardt model'],
+                   saving_path=saving_path, var_lists=var_lists)
 
-        y_data_list = [dict_result['l2 dist']]
+        y_data_list = [dict_result['l2 f_hat svm dist'], dict_result['l2 f_hat hardt dist']]
         saving_path = os.path.join(base_output_path, 'f_hat_dist_f_vs_num_friends.png')
-        plot_graph(title='f_hat dist from f vs number of random friends to learn',
+        var_lists = [dict_result['var l2 f_hat svm dist'], dict_result['var l2 f_hat hardt dist']]
+        plot_graph(title=r'$\^{f}$ dist from f vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='dist l2', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
+                   y_label='dist l2', x_data_list=x_data_list, y_data_list=y_data_list,
+                   graph_label_list=['svm model', 'Hardt model'],
+                   saving_path=saving_path, var_lists=var_lists)
 
-        y_data_list = [dict_result['angel_f_f_hat']]
-        saving_path = os.path.join(base_output_path, 'angle_between_f_hat_and_f_vs_num_friends.png')
-        plot_graph(title='angle between f_hat and f vs number of random friends to learn',
+        y_data_list = [dict_result['avg_angel_svm_f_hat'], dict_result['avg_angle_hardt_f_hat']]
+        saving_path = os.path.join(base_output_path, 'avg angle_between_f_hat_and_f_vs_num_friends.png')
+        var_lists = [dict_result['var_angel_svm_f_hat'], dict_result[r'var_angel_hardt_f_hat']]
+        plot_graph(title=r'angle between $\^{f}$ and f vs number of random friends to learn',
                    x_label='number of friends',
-                   y_label='angle', x_data_list=x_data_list, y_data_list=y_data_list, saving_path=saving_path)
+                   y_label='angle', x_data_list=x_data_list, y_data_list=y_data_list,
+                   graph_label_list=['svm model', 'Hardt model'],
+                   saving_path=saving_path, var_lists=var_lists)
 
+        y_data_list = [dict_result['number_that_moved_svm_list'], dict_result['number_that_moved_hardt_list']]
+        saving_path = os.path.join(base_output_path, 'number_that_moved_vs_num_friends.png')
+        plot_graph(title='number that moved vs number of random friends to learn',
+                   x_label='number of friends',
+                   y_label='number that moved', x_data_list=x_data_list, y_data_list=y_data_list, graph_label_list=['svm model', 'Hardt model'],
+                   saving_path=saving_path)
 
     hardt_algo = get_hardt_model(cost_factor, real_train_f_star_loan_status_path, train_hadart)
-    feature_list_to_use = six_most_significant_features
-    f = load_model(model_loan_returned_path)
-    f_vec = np.append(f.coef_[0], f.intercept_)
-    # test_pred_loans_status_hardt = hardt_algo(fake_test_df)
+    f_svm = load_model(svm_model_loan_returned_path)
+    f_svm_vec = np.append(f_svm.coef_[0], f_svm.intercept_)
+    f_hardt_vec = np.append(hardt_algo.coef_[0], hardt_algo.intercept_)
     dict_result = init_dict_result()
+    data_tuple = get_datasets_and_f_grade(f_svm, hardt_algo, real_train_val_f_star_loan_status_path,
+                                          real_test_f_star_loan_status_path, feature_list_to_use)
 
-    real_train_val_f_star_df, real_test_f_star_df, real_train_val_f_loan_status, test_pred_loans_status_f = \
-        get_datasets_and_f_grade(f, real_train_val_f_star_loan_status_path, real_test_f_star_loan_status_path)
+    real_train_val_f_star_df, real_test_f_star_df, real_train_val_svm_loan_status, test_pred_loans_status_svm, \
+    real_train_val_hardt_loan_status, test_pred_loans_status_hardt = data_tuple
 
-    parent_folder_path, base_output_path, friends_dict_dir_path = create_paths_and_dirs_for_random_friends_experiment()
+    tuple_path_folders = create_paths_and_dirs_for_random_friends_experiment()
+    parent_folder_path, base_output_path, friends_dict_dir_path, svm_folder, hardt_folder = tuple_path_folders
 
     for num_friend in dict_result['number_of_friends_to_learn_list']:
         print(num_friend)
-        member_friend_dict_path = os.path.join(friends_dict_dir_path, f'member_friends_{num_friend}friends.json')
-        member_dict = create_member_friends_dict(num_friend, real_train_val_f_loan_status,
-                                                  real_test_f_star_df, member_friend_dict_path, force_to_crate=False) #todo: change it to false
+        member_friend_dict_path = os.path.join(friends_dict_dir_path, f'random_{num_friend}friends_for_svm.json')
+        member_dict = create_member_friends_dict(num_friend, real_train_val_svm_loan_status,
+                                                 real_test_f_star_df, member_friend_dict_path,
+                                                 force_to_crate=False)
 
         cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor)
-        friends_modify_strategic_data, f_hat_acc, avg_l2_f_dist, avg_angle = strategic_modify_learn_from_friends(real_test_f_star_df,
-                                                                            test_pred_loans_status_f,
-                                                                            real_train_val_f_star_df,
-                                                                            real_train_val_f_loan_status,
-                                                                            feature_list_to_use, cost_func_for_gaming,
-                                                                            target_label='LoanStatus',
-                                                                            member_dict=member_dict,
-                                                                            f_vec=f_vec,
-                                                                            dir_name_for_saving_visualize=base_output_path,
-                                                                            title_for_visualization=f'real test learned {num_friend}'
-                                                                            )
+        # friends_modify_on_svm_strategic_data, f_hat_acc_svm, avg_l2_f_svm_dist, avg_angle_svm, num_example_moved_svm
+        friends_modify_on_svm_strategic_data, data_svm_res_dict = strategic_modify_learn_from_friends(
+                                                                                             'SVM', test_pred_loans_status_svm,
+                                                                                              real_test_f_star_df,
+                                                                                              real_train_val_f_star_df,
+                                                                                              real_train_val_svm_loan_status,
+                                                                                              feature_list_to_use,
+                                                                                              cost_func_for_gaming,
+                                                                                              member_dict=member_dict,
+                                                                                              f_vec=f_svm_vec,
+                                                                                              dir_name_for_result=svm_folder,
+                                                                                              title_for_visualization=f'real test learned on svm{num_friend}',
+                                                                                              num_friends=num_friend
+                                                                                              )
+
+        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor)
+        member_friend_dict_path = os.path.join(friends_dict_dir_path, f'random_{num_friend}friends_for_hardt.json')
+        member_dict = create_member_friends_dict(num_friend, real_train_val_hardt_loan_status,
+                                                 real_test_f_star_df, member_friend_dict_path,
+                                                 force_to_crate=False)
+        friends_modify_on_hardt_strategic_data, data_hardt_res_dict = strategic_modify_learn_from_friends(
+                                                                                        'Hardt',test_pred_loans_status_hardt,
+                                                                                        real_test_f_star_df,
+                                                                                        real_train_val_f_star_df,
+                                                                                        real_train_val_hardt_loan_status,
+                                                                                        feature_list_to_use, cost_func_for_gaming,
+                                                                                        member_dict=member_dict,
+                                                                                        f_vec=f_hardt_vec,
+                                                                                        dir_name_for_result=hardt_folder,
+                                                                                        title_for_visualization=f'real test learned on hardt{num_friend}',
+                                                                                        num_friends=num_friend
+                                                                                    )
+
         update_dict_result()
 
-    with open(os.path.join(base_output_path, 'dict_result.json'), 'w') as json_file:
+    with open(os.path.join(base_output_path, 'final_random_friends_dict_result.json'), 'w') as json_file:
         json.dump(dict_result, json_file, indent=4)
     plot_dict_result_graph()
+
 
 def create_main_folders():
     os.makedirs(result_folder_path, exist_ok=True)
     os.makedirs(models_folder_path, exist_ok=True)
 
+
+def plot_hist(data, name):
+    plt.hist(data, bins=100)
+    plt.title(name)
+    plt.savefig(os.path.join(result_folder_path, name + '.png'))
+    plt.show()
+
+
+def create_histograms(cost_factor):
+    # train_val_df = pd.read_csv(real_train_val_f_star_loan_status_path)[six_most_significant_features]
+    test_df = pd.read_csv(real_test_f_star_loan_status_path)[six_most_significant_features]
+    f = load_model(svm_model_loan_returned_path)
+    data = test_df @ f.coef_[0] + f.intercept_
+    neg_d = data[data < 0]
+    plot_hist(neg_d, 'test that is neg')
+    plot_hist(data, 'f_hist_on_test')
+    hardt = get_hardt_model(cost_factor, real_train_val_f_star_loan_status_path, force_train_hardt=False)
+    data = test_df @ a
+    plot_hist(data, 'hardt_hist_on_test')
+    modify_full_information_test = pd.read_csv(modify_full_information_real_test_path)[six_most_significant_features]
+    data = modify_full_information_test @ f.coef_[0] + f.intercept_
+    neg_d = data[data < 0]
+    plot_hist(neg_d, 'modify test that is still neg')
+    print(f'number that is predicted as negetive {np.sum(f.predict(modify_full_information_test) == -1)}')
+    plot_hist(data, 'f_hist_on_modify_full_info_test')
+    data = modify_full_information_test @ a
+    plot_hist(data, 'hardt_hist_on_modify_full_info_test')
+
+
 if __name__ == '__main__':
-    cost_factor = 10
-    # create_main_folders()
-    # main_create_synthetic_data()
-    run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=0.3)
-    print(10)
-    strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=0.3)
+    cost_factor = 5
+    epsilon = 0.2
+
+    # test_df = pd.read_csv(real_test_f_star_loan_status_path)
+    # pos_test = test_df[test_df['LoanStatus'] == 1][six_most_significant_features]
+    # cost_pos_test = pos_test @ a * cost_factor
+    # neg_test = test_df[test_df['LoanStatus'] == -1][six_most_significant_features]
+    # cost_neg_test = neg_test @ a * cost_factor
+    # plt.hist(cost_pos_test, 20, label='positive loan status test', alpha=0.7)
+    # plt.hist(cost_neg_test, 20, label='negetive loan status test', alpha=0.7)
+    # plt.legend(loc='upper right')
+    # plt.title('test positive negetive loan status')
+    # plt.savefig(os.path.join(result_folder_path, 'cost_histograms_test.png'))
+    # plt.show()
+    # hardt_model = get_hardt_model(cost_factor, real_train_val_f_star_loan_status_path, False)
+    # pos_test = test_df[hardt_model(test_df[six_most_significant_features]) == 1][six_most_significant_features]
+    # cost_pos_test = pos_test @ a * cost_factor
+    # neg_test = test_df[hardt_model(test_df[six_most_significant_features]) == -1][six_most_significant_features]
+    # cost_neg_test = neg_test @ a * cost_factor
+    # plt.hist(cost_pos_test, 20, label='positive loan status test', alpha=0.7)
+    # plt.hist(cost_neg_test, 20, label='negetive loan status test', alpha=0.7)
+    # plt.legend(loc='upper right')
+    # plt.title('test positive negetive loan status')
+    # plt.savefig(os.path.join(result_folder_path, 'cost_histograms_hradt_result_test_no_gaming.png'))
+    # plt.show()
+
+    # run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=epsilon)
+
+    strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=epsilon)
+
