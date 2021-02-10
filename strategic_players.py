@@ -28,23 +28,31 @@ def visualize_projected_changed_df(clf_name, before_change_df, after_change_df, 
 
     os.makedirs(dir_name_for_saving_visualize, exist_ok=True)
     dir_for_projection_images = os.path.join(dir_name_for_saving_visualize, dir_for_projection_images)
-    fig, (ax_before, ax_after) = plt.subplots(1, 2)
     df_before_loan_status, df_before = before_change_df[label], before_change_df[features_to_project]
     df_after = after_change_df[features_to_project]
-    fig.suptitle(title)
-    ax_before.set_title('before')
-    ax_after.set_title('after')
     projected_df_before, projected_df_after = apply_transform_for_2D(df_before), apply_transform_for_2D(df_after)
-
-    ax_before.scatter(projected_df_before[0][:num_point_to_plot], projected_df_before[1][:num_point_to_plot],
-                      color='green')
-    ax_after.scatter(projected_df_after[0][:num_point_to_plot], projected_df_after[1][:num_point_to_plot],
-                     color='orange')
-    plt.show()
-
     fig, ax = plt.subplots(1, 1)
     ax.scatter(projected_df_before[0][:num_point_to_plot], projected_df_before[1][:num_point_to_plot], s=10)
     ax.scatter(projected_df_after[0][:num_point_to_plot], projected_df_after[1][:num_point_to_plot], s=10)
+
+    if clf_name == 'SVM':
+        left_bound, right_bound = 1, 3
+        bottom_bound, up_bound = 0.2, 1.4
+        head_length = 0.03
+        head_width = 0.02
+    elif clf_name == 'Hardt':
+        left_bound, right_bound = 0.5, 2.5
+        bottom_bound, up_bound = 0, 1.2
+        head_length = 0.03
+        head_width = 0.02
+    elif clf_name == 'SVM_real_network':
+        left_bound, right_bound = 20, 60
+        bottom_bound, up_bound = 10, 35
+        head_length = 1
+        head_width = 0.5
+    else:
+        print('clf_name should be Hardt or SVM returning without plot')
+        return
 
     for i, (before_row_tup, after_row_tup, before_full, after_full) in enumerate(
             zip(projected_df_before.iterrows(), projected_df_after.iterrows(), df_before.iterrows(),
@@ -52,19 +60,10 @@ def visualize_projected_changed_df(clf_name, before_change_df, after_change_df, 
         before_row, after_row = before_row_tup[1], after_row_tup[1]
         plt.arrow(before_row[0], before_row[1], after_row[0] - before_row[0], after_row[1] - before_row[1],
                   shape='full', color='black', length_includes_head=True,
-                  zorder=0, head_length=0.03, head_width=0.02)
+                  zorder=0, head_length=head_length, head_width=head_width)
         if i > num_point_to_plot:
             break
 
-    if clf_name == 'SVM':
-        left_bound, right_bound = 1, 3
-        bottom_bound, up_bound = 0.2, 1.4
-    elif clf_name == 'Hardt':
-        left_bound, right_bound = 0.5, 2.5
-        bottom_bound, up_bound = 0, 1.2
-    else:
-        print('clf_name should be Hardt or SVM returning without plot')
-        return
 
     t = np.arange(left_bound, right_bound, 0.2)
     plt.plot(t, -t - f_inter, color='blue')
@@ -161,7 +160,7 @@ def create_strategic_data_sets_using_known_clf(dir_name_for_saving_visualize, co
     return modify_full_information_test
 
 
-def train_loan_status_model_with_cv(training_set: pd.DataFrame, training_labels: pd.DataFrame):
+def train_loan_status_model_with_cv(training_set: pd.DataFrame, training_labels: pd.Series):
     num_samples = len(training_set)
     if num_samples <= 10:
         splitter = LeaveOneOut()
@@ -173,7 +172,7 @@ def train_loan_status_model_with_cv(training_set: pd.DataFrame, training_labels:
         k = 3
         splitter = KFold(n_splits=k)
 
-    c_valuse = [0.01, 0.05, 0.1, 0.5, 1, 5, 10]
+    c_valuse = [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 100, 1000]
     best_c, best_acc = -1, -np.inf
     for c in c_valuse:
         sum_current_c_acc = 0
@@ -183,7 +182,7 @@ def train_loan_status_model_with_cv(training_set: pd.DataFrame, training_labels:
             current_f = LinearSVC(C=c, random_state=42, max_iter=100000).fit(X_train, y_train)
             sum_current_c_acc += np.sum(current_f.predict(X_test) == y_test) / len(y_test)
         if best_acc < sum_current_c_acc / k:
-            best_acc, best_c = sum_current_c_acc, c
+            best_acc, best_c = sum_current_c_acc/k, c
     print(f'picked C: {best_c} with cross validation')
     f_hat = LinearSVC(C=best_c, random_state=42, max_iter=100000).fit(training_set, training_labels)
     return f_hat
@@ -202,9 +201,7 @@ def get_svm_loan_return_model(model_loan_returned_path, features_to_use, retrain
 
 def init_data_to_return_dict():
     data_to_return = dict()
-    # data_to_return['sum_l2_norm'] = 0
-    # data_to_return['sum_acc'] = 0
-    # data_to_return['sum_angle_f_hat_f'] = 0
+
     data_to_return['number_moved'] = 0
     data_to_return['acc_list'] = list()
     data_to_return['l2_norm_list'] = list()
@@ -216,7 +213,7 @@ def update_dicts_for_f_hat_result(f_hat_data_dict, data_to_return, member_key, o
                                   models_f_hat_path, f_vec, did_changed, prediction_f_hat_on_x):
     f_hat_data_dict[member_key] = dict()
     saving_model_path = os.path.join(models_f_hat_path, f'f_hat_{member_key}.sav')
-    save_model(f_hat, saving_model_path)
+    save_model(f_hat, saving_model_path) # todo: return it
     f_hat_data_dict[member_key]['saving model path'] = saving_model_path
     f_hat_data_dict[member_key]['acc'] = evaluate_model_on_test_set(orig_df, f_hat, feature_to_learn_list, orig_df_f_loan_status)
     data_to_return['acc_list'].append(f_hat_data_dict[member_key]['acc'])
@@ -263,7 +260,7 @@ def get_paths_for_running(dir_name_for_result, num_friends):
 
 
 def get_player_movements_and_update_modify_data_df(cost_func, modify_data, index, f_hat, x):
-    z = cost_func.maximize_features_against_binary_model(x, f_hat, use_spare_cost=False)
+    z = cost_func.maximize_features_against_binary_model(x, f_hat, use_spare_cost=True)
     modify_data.loc[index] = z
     if f_hat.predict(z.reshape(1, -1))[0] == 1:
         did_move = True
@@ -276,9 +273,11 @@ def get_player_movements_and_update_modify_data_df(cost_func, modify_data, index
 
 def train_f_hat(sample_friends_from_df, sample_friends_f_loan_status, member_dict, member_key, feature_to_learn_list):
     friends_df = sample_friends_from_df.iloc[member_dict[member_key]["friends with credit data"], :]
-    friends_labels_df = sample_friends_f_loan_status[member_dict[member_key]["friends with credit data"]]
-    f_hat = LinearSVC(C=1000, penalty='l2', random_state=42, max_iter=1000000).fit(
-        friends_df[feature_to_learn_list], friends_labels_df)
+    friends_labels = sample_friends_f_loan_status[member_dict[member_key]["friends with credit data"]]
+    if len(set(friends_labels)) < 2:
+        return None
+    f_hat = LinearSVC(C=1000, penalty='l2', random_state=42, max_iter=100000000).fit(
+        friends_df[feature_to_learn_list], friends_labels)
     return f_hat
 
 
@@ -291,7 +290,7 @@ def write_modify_data_with_all_columns(modify_data, orig_df, data_modified_path)
 def strategic_modify_learn_from_friends(clf_name, orig_df_f_loan_status, orig_df: pd.DataFrame, sample_friends_from_df: pd.DataFrame, sample_friends_f_loan_status,
                                         feature_to_learn_list, cost_func: CostFunction, member_dict: dict, f_vec, dir_name_for_result: str = None,
                                         title_for_visualization: str = None, visualization=True, num_friends=0):
-    counter = 0  # only for debugging.
+    # counter = 0  # only for debugging.
     modify_data = orig_df[feature_to_learn_list].copy()
     should_save = False
     if dir_name_for_result is not None:
@@ -303,13 +302,16 @@ def strategic_modify_learn_from_friends(clf_name, orig_df_f_loan_status, orig_df
         for (index, ex), member_key in zip(orig_df[feature_to_learn_list].iterrows(), orig_df['MemberKey']):
             f_hat_data_dict[member_key] = dict()
             f_hat = train_f_hat(sample_friends_from_df, sample_friends_f_loan_status, member_dict, member_key, feature_to_learn_list)
+            # f model is already trained we can load it
+            # f_hat = load_model(os.path.join(models_f_hat_path, f'f_hat_{member_key}.sav'))
             x = np.array(ex)
-            prediction_f_hat_on_x = f_hat.predict(x.reshape(1, -1))[0]
             did_changed = False
-            if prediction_f_hat_on_x == -1:
-                counter += 1  # only for statistics and debugging we can delete it later
-                did_changed = get_player_movements_and_update_modify_data_df(cost_func, modify_data, index, f_hat, x)
-            if should_save:
+            if f_hat is not None:
+                prediction_f_hat_on_x = f_hat.predict(x.reshape(1, -1))[0]
+                if prediction_f_hat_on_x == -1:
+                    # counter += 1  # only for statistics and debugging we can delete it later
+                    did_changed = get_player_movements_and_update_modify_data_df(cost_func, modify_data, index, f_hat, x)
+            if should_save and f_hat is not None:
                 update_dicts_for_f_hat_result(f_hat_data_dict, data_to_return, member_key, orig_df, f_hat,
                                               feature_to_learn_list, orig_df_f_loan_status,
                                               models_f_hat_path, f_vec, did_changed, prediction_f_hat_on_x.item())
@@ -317,7 +319,7 @@ def strategic_modify_learn_from_friends(clf_name, orig_df_f_loan_status, orig_df
     if should_save:
         finish_data_dicts_updates(data_to_return, f_hat_data_dict, f_hat_data_json_path, data_to_return_path)
         write_modify_data_with_all_columns(modify_data, orig_df, data_modified_path)
-    print(f'number that changed is: {counter}')
+    # print(f'number that changed is: {counter}')
 
     # cost_func.get_statistic_on_num_change()
     if visualization:

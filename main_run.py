@@ -19,7 +19,7 @@ def get_hardt_model(cost_factor, train_path, force_train_hardt=False,
     return hardt_algo
 
 
-def run_strategic_full_info(train_hardt=False, cost_factor=7, epsilon=0.2,
+def run_strategic_full_info(train_hardt=False, cost_factor=5, epsilon=0.2,
                             feature_list_to_use=six_most_significant_features):
     dir_name_for_saving_visualize = os.path.join(result_folder_path, 'full_information_strategic')
     os.makedirs(dir_name_for_saving_visualize, exist_ok=True)
@@ -49,13 +49,13 @@ def get_datasets_and_f_grade(f_svm, f_hardt, train_path, test_path, feature_list
 
 
 def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
-                                  feature_list_to_use=six_most_significant_features):
+                                  feature_list_to_use=six_most_significant_features, spare_cost=0.2, use_bouth_classes=True):
     def init_dict_result():
         dict_result = dict()
         # dict_result['number_of_friends_to_learn_list'] = [4, 6, 10, 50, 100, 200, 500, 1000, 2000, 4000, 7000, 10000,
         #                                                   15000]
-        dict_result['number_of_friends_to_learn_list'] = [4, 6, 10, 50, 100, 200, 500, 1000, 2000, 4000, 7000, 10000,
-                                                           15000]
+        dict_result['number_of_friends_to_learn_list'] = [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+        # dict_result['number_of_friends_to_learn_list'] = [8192]
         dict_result['hardt_friends_acc_list'] = []
         dict_result['svm_model_friends_acc_list'] = []
         dict_result['num_improved_list_and_y_pos_svm'] = []
@@ -93,6 +93,7 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
 
     def create_paths_and_dirs_for_random_friends_experiment(
             experiment='changed_samples_by_gaming_random_friends_losns_status'):
+        os.makedirs(result_folder_path, exist_ok=True)
         path_to_parent_folder = safe_create_folder(result_folder_path, experiment)
         path_to_base_output = safe_create_folder(path_to_parent_folder, f'cost_factor={cost_factor}_epsilon={epsilon}')
         path_to_friends_dict_dir = safe_create_folder(path_to_base_output, 'friends_dict')
@@ -163,13 +164,31 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
         dict_result['number_that_moved_hardt_list'].append(100 * 1 / test_size * data_hardt_res_dict['number_moved'])
 
     def plot_dict_result_graph():
-        x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(2)]
+        def copy_value_to_list(value, length):
+            return [value for _ in range(length)]
+
+        full_info_modify_on_svm_strategic_data = pd.read_csv(svm_modify_full_information_real_test_path)
+        full_info_modify_on_hardt_strategic_data = pd.read_csv(hardt_modify_full_information_real_test_path)
+        svm_acc_test_modify = evaluate_model_on_test_set(full_info_modify_on_svm_strategic_data, f_svm, feature_list_to_use)
+
+        hardt_acc_test_modify = evaluate_model_on_test_set(full_info_modify_on_hardt_strategic_data, hardt_algo, feature_list_to_use)
+
+        svm_acc_test_not_modify = evaluate_model_on_test_set(real_test_f_star_df, f_svm, feature_list_to_use)
+        hardt_acc_test_not_modify = evaluate_model_on_test_set(real_test_f_star_df, hardt_algo, feature_list_to_use)
+        num_friends_exp = len(dict_result['number_of_friends_to_learn_list'])
+        x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(6)]
         y_data_list = [dict_result['svm_model_friends_acc_list'], dict_result['hardt_friends_acc_list']]
+        y_data_list.append(copy_value_to_list(svm_acc_test_modify, num_friends_exp))
+        y_data_list.append(copy_value_to_list(hardt_acc_test_modify, num_friends_exp))
+        y_data_list.append(copy_value_to_list(svm_acc_test_not_modify, num_friends_exp))
+        y_data_list.append(copy_value_to_list(hardt_acc_test_not_modify, num_friends_exp))
+        graph_label_list = ['svm learn from friends', 'Hardt learn from friends', 'svm full information',
+                            'hardt full information', 'svm no change', 'hardt no change']
         saving_path = os.path.join(base_output_path, 'accuracy_vs_num_friends.png')
         plot_graph(title='accuracy vs number of random friends to learn',
                    x_label='number of random friend to learn',
                    y_label='accuracy', x_data_list=x_data_list, y_data_list=y_data_list,
-                   graph_label_list=['svm model', 'Hardt model'], saving_path=saving_path)
+                   graph_label_list=graph_label_list, saving_path=saving_path)
 
         x_data_list = [dict_result['number_of_friends_to_learn_list'] for _ in range(2)]
         y_data_list = [dict_result['num_improved_list_and_y_pos_svm'], dict_result['num_improved_list_and_y_pos_hardt']]
@@ -254,10 +273,10 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
         member_friend_dict_path = os.path.join(friends_dict_dir_path, f'random_{num_friend}friends_for_svm.json')
         member_dict = create_member_friends_dict(num_friend, real_train_val_svm_loan_status,
                                                  real_test_f_star_df, member_friend_dict_path,
-                                                 force_to_crate=False)
+                                                 force_to_crate=False, use_both_classes=use_bouth_classes)
 
-        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor)
-        # friends_modify_on_svm_strategic_data, f_hat_acc_svm, avg_l2_f_svm_dist, avg_angle_svm, num_example_moved_svm
+        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor, spare_cost=spare_cost)
+
         friends_modify_on_svm_strategic_data, data_svm_res_dict = strategic_modify_learn_from_friends(
                                                                                              'SVM', test_pred_loans_status_svm,
                                                                                               real_test_f_star_df,
@@ -272,13 +291,14 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
                                                                                               num_friends=num_friend
                                                                                               )
 
-        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor)
+
+        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a, epsilon=epsilon, cost_factor=cost_factor, spare_cost=spare_cost)
         member_friend_dict_path = os.path.join(friends_dict_dir_path, f'random_{num_friend}friends_for_hardt.json')
         member_dict = create_member_friends_dict(num_friend, real_train_val_hardt_loan_status,
                                                  real_test_f_star_df, member_friend_dict_path,
-                                                 force_to_crate=False)
+                                                 force_to_crate=False, use_both_classes=use_bouth_classes)
         friends_modify_on_hardt_strategic_data, data_hardt_res_dict = strategic_modify_learn_from_friends(
-                                                                                        'Hardt',test_pred_loans_status_hardt,
+                                                                                        'Hardt', test_pred_loans_status_hardt,
                                                                                         real_test_f_star_df,
                                                                                         real_train_val_f_star_df,
                                                                                         real_train_val_hardt_loan_status,
@@ -290,11 +310,13 @@ def strategic_random_friends_info(train_hadart=True, cost_factor=5, epsilon=0.2,
                                                                                         num_friends=num_friend
                                                                                     )
 
+
         update_dict_result()
 
     with open(os.path.join(base_output_path, 'final_random_friends_dict_result.json'), 'w') as json_file:
         json.dump(dict_result, json_file, indent=4)
     plot_dict_result_graph()
+
 
 
 def create_main_folders():
@@ -307,9 +329,7 @@ def create_main_folders():
 if __name__ == '__main__':
     cost_factor = 5
     epsilon = 0.2
-
-
-    # run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=epsilon)
-
-    strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=epsilon)
+    spare_cost = 0
+    run_strategic_full_info(train_hardt=False, cost_factor=cost_factor, epsilon=epsilon)
+    strategic_random_friends_info(train_hadart=False, cost_factor=cost_factor, epsilon=epsilon, spare_cost=spare_cost, use_bouth_classes=True)
 

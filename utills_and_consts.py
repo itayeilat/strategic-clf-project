@@ -2,6 +2,7 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import os
+import pandas as pd
 
 
 def safe_create_folder(parent_folder_path, folder_name):
@@ -10,32 +11,40 @@ def safe_create_folder(parent_folder_path, folder_name):
     return path_folder
 
 
-def plot_variance_line(x_data, y_data, var_list, color):
-    var_below = [y - np.sqrt(var).item() for y, var in zip(y_data, var_list)]
-    var_above = [y + np.sqrt(var).item() for y, var in zip(y_data, var_list)]
+def plot_variance_line(x_data, y_data, var_list, color, SE, num_samples):
+    if SE:
+        var_below = [y - np.sqrt(var).item() / np.sqrt(num_samples) for y, var in zip(y_data, var_list)]
+        var_above = [y + np.sqrt(var).item() / np.sqrt(num_samples) for y, var in zip(y_data, var_list)]
+    else:
+        var_below = [y - np.sqrt(var).item() for y, var in zip(y_data, var_list)]
+        var_above = [y + np.sqrt(var).item() for y, var in zip(y_data, var_list)]
     plt.fill_between(x_data, var_below, var_above, edgecolor=color, alpha=0.2)
 
 
+
 def plot_graph(title: str, x_label: str, y_label: str, x_data_list: list, y_data_list: list, saving_path: str,
-               graph_label_list=None, symlog_scale=True, var_lists=None, title_size=9):
+               graph_label_list=None, symlog_scale=True, var_lists=None, title_size=9, SE=False, num_samples=0):
 
     plt.title(title, fontsize=title_size)
     plt.xlabel(x_label)
     if symlog_scale:
-        plt.xscale('symlog')
+        plt.xscale('log')
     plt.ylabel(y_label)
-    color_list = ['b', 'r', 'g', 'y', 'gray']
+    color_list = ['b', 'r', 'g', 'y', 'gray', 'k', 'm', 'c']
     if graph_label_list is not None:
         for i in range(len(x_data_list)):
             plt.plot(x_data_list[i], y_data_list[i], color_list[i], label=graph_label_list[i])
             if var_lists is not None:
-                plot_variance_line(x_data_list[i], y_data_list[i], var_lists[i], color_list[i])
+                plot_variance_line(x_data_list[i], y_data_list[i], var_lists[i], color_list[i], SE, num_samples)
+
+
+
         plt.legend(loc="upper right")
     else:
         for i in range(len(x_data_list)):
             plt.plot(x_data_list[i], y_data_list[i], color_list[i])
             if var_lists is not None:
-                plot_variance_line(x_data_list[i], y_data_list[i], var_lists[i], color_list[i])
+                plot_variance_line(x_data_list[i], y_data_list[i], var_lists[i], color_list[i], SE, num_samples)
                 # var_below = [y - var for y, var in zip(y_data_list, var_lists[i])]
                 # var_above = [y + var for y, var in zip(y_data_list, var_lists[i])]
                 # plt.fill_between(x_data_list[i], var_below, var_above, color_list[i], alpha=.1)
@@ -47,15 +56,17 @@ def plot_graph(title: str, x_label: str, y_label: str, x_data_list: list, y_data
 
 def evaluate_model_on_test_set(test_set, model, feature_list_to_predict, orig_df_f_loan_status=None, target_label='LoanStatus'):
     test_labels = test_set[target_label] if orig_df_f_loan_status is None else orig_df_f_loan_status
-    will_loan_returned_pred = model.predict(test_set[feature_list_to_predict])
+    will_loan_returned_pred = model.predict(pd.DataFrame(test_set[feature_list_to_predict]))
     return np.sum(will_loan_returned_pred == test_labels) / len(will_loan_returned_pred)
 
 
 def load_model(path: str):
     return pickle.load(open(path, 'rb'))
 
+
 def save_model(model, model_path):
     pickle.dump(model, open(model_path, 'wb'))
+
 
 real_train_path = 'data/train_pre2009.csv'
 real_val_path = 'data/val_pre2009.csv'
@@ -68,31 +79,20 @@ real_test_f_star_loan_status_path = 'data/test_pre2009_f_star_loan_status.csv'
 real_train_val_f_star_loan_status_path = 'data/train_val_pre2009_f_star_loan_status.csv'
 
 
-# synthetic_all_data = 'data/synthetic_dataset.csv'
-# synthetic_train_path = 'data/synthetic_train.csv'
-# synthetic_val_path = 'data/synthetic_val.csv'
-# synthetic_train_val_path = 'data/synthetic_train_val.csv'
-# synthetic_test_path = 'data/synthetic_test.csv'
-#synthetic_set_to_sample_from_path = 'data/synthetic_set_to_sample_from_set.csv'
-# synthetic_set_to_sample_from_path = 'data/synthetic_set_to_sample_from_set2.csv'
-# modify_full_information_train_synthetic_path = 'data/modify_full_information_train.csv'
-# modify_full_information_val_synthetic_path = 'data/modify_full_information_val.csv'
-# modify_full_information_test_synthetic_path = 'data/modify_full_information_test.csv'
-
-svm_modify_full_information_real_test_path = 'data/svm_modify_full_information_real_test.csv'
-hardt_modify_full_information_real_test_path = 'data/hardt_modify_full_information_real_test.csv'
-
 
 svm_model_loan_returned_path = 'models/loan_returned_svm_model.sav'
 models_folder_path = 'models'
 result_folder_path = 'result'
+data_folder_path = 'data'
+
+svm_modify_full_information_real_test_path = os.path.join(result_folder_path, 'full_information_strategic', 'modify_on_svm_test_df.csv')
+hardt_modify_full_information_real_test_path = os.path.join(result_folder_path, 'full_information_strategic', 'modify_on_hardt_test_df.csv')
 
 
-# a = 0.5 * np.array([0.5, 0.5, 1.5, -3, -0.5, 0.5]) #the one we use when we use svm and C=1
-a = 0.5 * np.array([0.5, 0.5, 1.5, -2.5, -0.5, 0.5]) #the one we use when we use svm and C=0.01
-# a = np.array([0.35078422, 0.26892579, 1.1291136, -1.80878329, -0.21506541, 0.14208666]) # this is svm f and intercept is -2.59545
+a = 0.5 * np.array([0.5, 0.5, 1.5, -2.5, -0.5, 0.5])
 
 
+a_4 = 0.5 * np.array([7.5, 3, 30, -50])
 feature_list_for_pred = ['TotalTrades', 'TotalInquiries',
                         'AvailableBankcardCredit', 'BankcardUtilization', 'AmountDelinquent',
                         'IncomeRange', 'LoanOriginalAmount',
@@ -127,4 +127,5 @@ six_most_significant_features = ['AvailableBankcardCredit', 'LoanOriginalAmount'
 
 eight_most_significant_features = six_most_significant_features + ['IsBorrowerHomeowner', 'DebtToIncomeRatio']
 
-
+four_most_significant_features = ['AvailableBankcardCredit', 'LoanOriginalAmount', 'TradesNeverDelinquent(percentage)',
+                                'BankcardUtilization']

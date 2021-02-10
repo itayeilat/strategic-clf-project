@@ -76,7 +76,7 @@ def check_result(trained_model, new_x, cost):
 
 
 class MixWeightedLinearSumSquareCostFunction(CostFunction):
-    def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=7):
+    def __init__(self, weighted_vector: np.array, epsilon=0.3, cost_factor=7, spare_cost=0.2):
         self.a = weighted_vector
         self.epsilon = epsilon
         # some values for statistic and debugging:
@@ -86,13 +86,8 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         self.trash = 0.001
         self.cost_factor = cost_factor
         self.max_cost, self.max_separable_cost = -np.inf, -np.inf
-        # import pickle
-        # model_loan_returned_path = 'models/loan_returned_svm_model.sav'
-        # self.f = pickle.load(open(model_loan_returned_path, 'rb'))
-        # self.num_changed_on_f_hat_not_f = 0
-        # self.cost_left_avg = 0
-        # self.sub_f_res_f_hat_res = 0
-        # self.num_could_improved_on_f_not_f_hat = 0
+        self.spare_cost = spare_cost
+
 
     def __call__(self, z: np.array, x: np.array):
         return max((1 - self.epsilon) * self.a.T @ (z - x) + self.epsilon * np.sum((z - x) ** 2), 0)
@@ -103,10 +98,7 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
             self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_t - x), 0) + self.epsilon *
                                 cp.sum((x_t - x) ** 2)))
         constrains = [x_t @ model.coef_[0] >= -model.intercept_ + tol]
-        if len(x) > 5:
-            constrains.append(x_t[5] >= x[5])  # credit history can't get lower.
-        if len(x) > 4:
-            constrains.append(x_t[4] >= x[4])  # total number of inquiries can't get lower.
+
         prob = cp.Problem(func_to_solve, constrains)
         try:
             prob.solve()
@@ -128,15 +120,11 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
 
         constrains = [self.cost_factor * (cp.maximum((1 - self.epsilon) * self.a.T @ (x_t - x), 0) + self.epsilon *
                                           cp.sum((x_t - x) ** 2)) <= spare_cost - tol]
-        if len(x) > 5:
-            constrains.append(x_t[5] >= x[5])  # credit history can't get lower.
-        if len(x) > 4:
-            constrains.append(x_t[4] >= x[4])  # total number of inquiries can't get lower.
         prob = cp.Problem(func_to_solve, constrains)
         prob.solve()
-        if x_t is None:
+        if x_t.value is None:
             print("couldn't solve this problem")
-            return
+            return None
         cost = cp.maximum((1 - self.epsilon) * self.a.T @ (x_t - x), 0) + self.epsilon * cp.sum(
             (x_t - x) ** 2)
         cost *= self.cost_factor
@@ -169,10 +157,12 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
         x_tag, cost_result = self.solve_problem_min_cost_s_t_model(trained_model, x, tolerance)
         if cost_result is None:
             return x_tag
-        if use_spare_cost:
+        if use_spare_cost and self.spare_cost != 0:
             if self.check_change_condition(trained_model, x_tag, cost_result):
-                spare_cost = min(0.01 + cost_result.value, 2)
-                x_tag, cost_result = self.solve_problem_max_model_s_t_cost(trained_model, x, spare_cost)
+                spare_cost = min(self.spare_cost + cost_result.value, 2)
+                x_cost_tup = self.solve_problem_max_model_s_t_cost(trained_model, x, spare_cost)
+                if x_cost_tup is not None:
+                    x_tag, cost_result = x_cost_tup
         return self.update_statistic_and_return_correct_x(x, x_tag, cost_result, trained_model)
 
 
@@ -186,31 +176,4 @@ class MixWeightedLinearSumSquareCostFunction(CostFunction):
             f'the number of examples above {self.trash} is : {self.num_above_trash} which are {calc_percent(self.num_above_trash)}% '
             f'max cost func is:{self.max_cost} and the max separable cost is: {self.max_separable_cost} \n'
         )
-        # if self.num_changed_on_f_hat_not_f != 0:
-        #     print(
-        #         f'num_changed_on_f_hat_not_f: {self.num_changed_on_f_hat_not_f}\n'
-        #         f'cost left avg according to num changed on f_hat but not f: {self.cost_left_avg / self.num_changed_on_f_hat_not_f}\n'
-        #         f'avg sub f and f_hat: {self.sub_f_res_f_hat_res / self.num_changed_on_f_hat_not_f}'
-        #     )
-            # print(f'the number that could improved on f but not f_hat {self.num_could_improved_on_f_not_f_hat}')
 
-# class SumSquareCostFunction(CostFunction):
-#     def __init__(self, cost_factor):
-#         self.cost_factor = cost_factor
-#
-#     def __call__(self, z: np.array, x: np.array):
-#         return np.sum((z - x) ** 2)
-#
-#     def maximize_features_against_binary_model(self, x: np.array, trained_model, tolerance=1e+9):
-#         z = cp.Variable(len(x))
-#         func_to_solve = cp.Minimize(self.cost_factor * cp.sum_squares(z - x))
-#         constrains = [z @ trained_model.coef_[0] >= -trained_model.intercept_ + tolerance]
-#         prob = cp.Problem(func_to_solve, constrains)
-#         result = prob.solve()
-#         if z is None:
-#             print("couldn't solve this problem")
-#             return
-#         if trained_model.predict(z.value.reshape(1, -1))[0] == 1 and result < 2:
-#             return z.value
-#         else:
-#             return x

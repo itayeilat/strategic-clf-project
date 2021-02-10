@@ -133,16 +133,18 @@ def apply_transform_creditgrade_loan_returned(credit_grade):
 
 
 
-def sample_all_classes_in_list(labels_friends, num_friends, num_class=2):
+def sample_all_classes_in_list(labels_friends, num_friends, num_class=2, use_bouth_classes=True):
     index_friends_list = list()
     classes_set = set()
     while len(classes_set) < num_class:
         index_friends_list = random.sample(range(len(labels_friends)), num_friends)
         classes_set = set(labels_friends[index_friends_list])
+        if not use_bouth_classes:
+            break
     return index_friends_list
 
 
-def create_member_friends_dict(num_friends, label_friends_df, df_to_create_list_friend_for, member_dict_path=None, force_to_crate=False):
+def create_member_friends_dict(num_friends, label_friends_df, df_to_create_list_friend_for, member_dict_path=None, force_to_crate=False, use_both_classes=True):
     if force_to_crate or os.path.exists(member_dict_path) is False:
         member_dict = dict()
         random.seed(8)

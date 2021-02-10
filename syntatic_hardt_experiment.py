@@ -6,7 +6,10 @@ from model import HardtAlgo
 from cost_functions import WeightedLinearCostFunction, MixWeightedLinearSumSquareCostFunction
 from strategic_players import strategic_modify_using_known_clf, strategic_modify_learn_from_friends
 from create_synthetic_data import create_member_friends_dict
-from utills_and_consts import evaluate_model_on_test_set, result_folder_path, plot_graph
+from utills_and_consts import evaluate_model_on_test_set, result_folder_path, plot_graph, safe_create_folder, save_model, load_model
+import json
+from sklearn.svm import LinearSVC
+import random
 
 
 def from_numpy_to_panda_df(data):
@@ -15,22 +18,25 @@ def from_numpy_to_panda_df(data):
     return data
 
 
-def create_dataset(data_size, pos_data_ratio, means_neg: np.array, means_pos: np.array, covariances_neg: np.array,
-                   covariances_pos: np.array):
-    assert len(means_neg) == len(means_pos)
-    assert covariances_neg.shape == covariances_pos.shape
-    assert covariances_pos.shape[0] == len(means_pos)
-    pos_size, neg_size = int(data_size * pos_data_ratio), int(data_size * (1-pos_data_ratio))
-    data_pos = np.random.multivariate_normal(mean=means_pos, cov=covariances_pos, size=pos_size)
-    data_pos = from_numpy_to_panda_df(data_pos)
-    data_neg = np.random.multivariate_normal(mean=means_neg, cov=covariances_neg, size=neg_size)
-    data_neg = from_numpy_to_panda_df(data_neg)
-    data = pd.concat([data_pos, data_neg], ignore_index=True)
-    data.insert(len(data.columns), 'label', np.concatenate((np.ones(pos_size), -np.ones(neg_size))))
-    data.insert(len(data.columns), 'MemberKey',
-                ['Mem' + str(i) for i in range(len(data))], True)
 
+def create_dataset(data_size, covariance=None, d=1):
+    def map_sum_one_minus_one(sum_value):
+        return 1 if sum_value >=0 else -1
+
+    if covariance is None:
+        covariance = np.eye(d)
+    means = np.zeros(shape=d)
+    data = np.random.multivariate_normal(mean=means, cov=covariance, size=data_size)
+    data = from_numpy_to_panda_df(data)
+    # memberkeys:
+    member_keys = [f's{i}' for i in range(data_size)]
+    data.insert(len(data.columns), 'MemberKey', member_keys, allow_duplicates=True)
+    labels = list(data.sum(axis=1).apply(map_sum_one_minus_one))
+    # using LoanStatus as label to prevent bugs
+    data.insert(len(data.columns), 'LoanStatus', labels, allow_duplicates=True)
     return data
+
+
 
 
 def plot_hist(data, title: str = '', save_path=None):
@@ -44,78 +50,120 @@ def plot_hist(data, title: str = '', save_path=None):
     plt.show()
 
 
+def change_test_datasets_f_info(f_model_list, test_lists, feature_list, epsilon, cost_factor, a_tag, spare_cost=0):
+    strategic_modify_tests_list = list()
+    for (test_set, f_model) in zip(test_lists, f_model_list):
+        cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a_tag, epsilon=epsilon, cost_factor=cost_factor,
+                                                                  spare_cost=spare_cost)
+        strategic_modify_tests_list.append(strategic_modify_using_known_clf(test_set, f_model, feature_list, cost_func_for_gaming))
+    return strategic_modify_tests_list
 
-base_folder = os.path.join(result_folder_path, 'oneD_synthetic_hardt_exp')
-os.makedirs(base_folder, exist_ok=True)
-histograms_folder = os.path.join(base_folder, 'histograms')
-os.makedirs(histograms_folder, exist_ok=True)
-mean_pos, mean_neg = 0, 4
-variances_list = [2, 1, 0.5, 0.2, 0.1]
 
 
-friends_list = [4, 6, 8, 10, 20]
-result_friends_changes = list()
-full_info_acc = list()
-si_list = list()
+def get_test_data_sets(test_size, num_data_sets_to_create, covariance=None, d=1, seed=42):
+    np.random.seed(seed)
+    return [create_dataset(test_size, covariance, d=d) for _ in range(num_data_sets_to_create)]
 
-for var in variances_list:
-    result_friends_changes.append(list())
-    np.random.seed(4)
-    test_df = create_dataset(200, 0.5, np.array([mean_pos]), np.array([mean_neg]), np.array([[var]]), np.array([[var]]))
-    plot_hist(test_df, title=f'original data no movements var: {var}', save_path=os.path.join(histograms_folder, f'original data no movements_{var}.png'))
-    train_df = create_dataset(800, 0.5, np.array([mean_pos]), np.array([mean_neg]), np.array([[var]]), np.array([[var]]))
+
+def create_firends_data_set(m, f, feature_list, covariance=None, d=1, seed=42):
+
+    friends_set, hardt_label_friends = None, None
+    friends_label = set()
+    f_labels_friends = None
+    while len(friends_label) != 2:
+        friends_set = create_dataset(m, covariance=covariance, d=d)
+        f_labels_friends = f.predict(pd.DataFrame(friends_set[feature_list]))
+        friends_label = set(f_labels_friends)
+    return friends_set, f_labels_friends
+
+
+def get_trained_hardt_models(train_size, exp_path, num_to_train, a_tag, cost_factor, covariance=None, d=1, force_to_create=False):
+    hardt_models_dir = safe_create_folder(exp_path, 'hardt_models')
+    hardt_models_to_return = list()
+    for i in range(num_to_train):
+        feature_list = [f'f{i}' for i in range(d)]
+        model_path = os.path.join(hardt_models_dir, f'hardt_{i}')
+        if force_to_create or os.path.exists(model_path) is False:
+            print(f' training hardt number: {i}')
+            train_set = create_dataset(train_size, covariance, d=d)
+            hardt_model = HardtAlgo(WeightedLinearCostFunction(a_tag, cost_factor))
+            hardt_model.fit(pd.DataFrame(train_set[feature_list]), train_set['LoanStatus'])
+            save_model(hardt_model, model_path)
+        else:
+            hardt_model = load_model(model_path)
+        hardt_models_to_return.append(hardt_model)
+    return hardt_models_to_return
+
+
+def m_exp():
+    np.random.seed(42)
+    base_folder = safe_create_folder(result_folder_path, 'oneD_synthetic_hardt_exp')
+    m_exp_path = safe_create_folder(base_folder, 'm_exp')
+    m_list = [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+
+    a_tag = np.array([1])
+    epsilon = 0.0000001
     cost_factor = 1
-    cost = WeightedLinearCostFunction(np.array([1]), cost_factor)
-    hardt_algo = HardtAlgo(cost)
-    hardt_algo.fit(pd.DataFrame(pd.DataFrame(train_df['f0'])), train_df['label'])
-    test_label = hardt_algo(pd.DataFrame(test_df['f0']))
-    acc = np.sum(test_label == test_df['label']) / len(test_df['label'])
-    print(f'acc on hardt {acc}')
-    full_info_acc.append(acc)
-    print(f'the si* we get: {hardt_algo.min_si}')
-    si_list.append(hardt_algo.min_si)
-    real_cost_func = MixWeightedLinearSumSquareCostFunction(np.array([1]), epsilon=0.2, cost_factor=cost_factor)
+    test_size = 1000
+    train_size =4000
+    num_splits = 5
+    repeat_on_same_model_exp = 50
 
-    modify_data = strategic_modify_using_known_clf(test_df, hardt_algo, ['f0'], real_cost_func)
-    plot_hist(modify_data, title=f'known hardt model cov:{var}', save_path=os.path.join(histograms_folder, f'full_information_variance{var}.png'))
-    acc = np.sum(hardt_algo(pd.DataFrame(modify_data['f0'])) == test_df['label']) / len(test_df['label'])
-    print(f'hardt acc on modified: {acc}')
-    hardet_train_label = hardt_algo(pd.DataFrame(train_df['f0']))
-
-    for num_friend in friends_list:
-        member_dict = create_member_friends_dict(num_friend, hardet_train_label, test_df, force_to_crate=True)
-        modify_learn_from_friends, f_hat_acc, avg_l2_f_dist, avg_angle, num_example_moved = strategic_modify_learn_from_friends(None, test_df,
-
-                                                                                                                                                 train_df,
-                                                                                                                                                 hardet_train_label,
-                                                                                                                                                 ['f0'], real_cost_func,
-
-                                                                                                                                                 member_dict=member_dict,
-                                                                                                                                                 f_vec=np.append(hardt_algo.coef_[0], hardt_algo.intercept_),
-                                                                                                                                                 dir_name_for_result='',
-                                                                                                                                                 title_for_visualization=f'',
-                                                                                                                                                 visualization=False
-                                                                                                                                                 )
-        plot_hist(modify_learn_from_friends, title=f'learn model from {num_friend} friends var: {var}',
-                  save_path=os.path.join(histograms_folder, f'f^_{num_friend}_friends_var_{var}.png'))
-        acc = evaluate_model_on_test_set(modify_learn_from_friends, hardt_algo, ['f0'], 'label')
-        print(f'acc on {num_friend} and var:{var} friends is: {acc}')
-        result_friends_changes[-1].append(acc)
-
-friends_list_duplicated = [friends_list for _ in range(len(result_friends_changes))]
-graphs_labels_list = [f'var = {var}' for var in variances_list]
-hardt_hat_acc_path = os.path.join(base_folder, 'acc_hardt_hat.png')
-plot_graph('accuracy vs number of friend to learn', x_label='number of friends', y_label='accuracy',
-           x_data_list=friends_list_duplicated, y_data_list=result_friends_changes, saving_path=hardt_hat_acc_path,
-           graph_label_list=graphs_labels_list, symlog_scale=False)
-
-plot_graph('si* vs variance', x_label='variance', y_label='si*', x_data_list=[variances_list], y_data_list=[si_list],
-           saving_path=os.path.join(base_folder, 'si_vs_variance.png'),symlog_scale=False)
-
-plot_graph('full info acc vs variance', 'variance', 'accuracy', x_data_list=[variances_list], y_data_list=[full_info_acc], saving_path=os.path.join(base_folder, 'acc_vs_variance.png'),symlog_scale=False)
+    f_models_list = get_trained_hardt_models(train_size, m_exp_path, num_splits, a_tag, cost_factor, force_to_create=False)
+    test_data_sets_list = get_test_data_sets(test_size, num_splits)
+    tests_full_info_changed = change_test_datasets_f_info(f_models_list, test_data_sets_list, ['f0'], epsilon, cost_factor, a_tag)
+    err_f_on_x_f_list = [1 - evaluate_model_on_test_set(test, f, ['f0']) for (f, test) in zip(f_models_list, tests_full_info_changed)]
+    test_f_pred_no_change = [f.predict(pd.DataFrame(test['f0'])) for (f, test) in zip(f_models_list, test_data_sets_list)]
+    f_hat_ne_f_err_list, f_hat_ne_f_err_var_list = list(), list()
+    pop_list, pop_var_list = list(), list()
 
 
 
+    for m in m_list:
+        splits_pop_list, f_hat_ne_f_err_split_list = list(), list()
+        # for each split the test is fixed and f is fixed
+        for i in range(num_splits):
+            print(f' m: {m} split number: {i}')
+            f_model, test_set = f_models_list[i], test_data_sets_list[i]
+            err_f_on_x_f = err_f_on_x_f_list[i]
+            # todo: f_hat trained more that one 10..
+            for _ in range(repeat_on_same_model_exp):
+                friends_set, friends_hardt_labels = create_firends_data_set(m, f_model, ['f0'])
+                f_hat = LinearSVC(C=1000, random_state=42, max_iter=100000)
+                f_hat.fit(pd.DataFrame(friends_set['f0']), friends_hardt_labels)
+                test_f_hat_pred = f_hat.predict(pd.DataFrame(test_set['f0']))
+                f_hat_ne_f_err_split_list.append(np.sum(test_f_hat_pred != test_f_pred_no_change[i]).item() / len(test_set))
+                cost_func_for_gaming = MixWeightedLinearSumSquareCostFunction(a_tag, epsilon=epsilon,
+                                                                              cost_factor=cost_factor,
+                                                                              spare_cost=0)
+                test_known_f_hat_changed = strategic_modify_using_known_clf(test_set, f_hat, ['f0'], cost_func_for_gaming)
+                err_f_on_x_f_hat = 1 - evaluate_model_on_test_set(test_known_f_hat_changed, f_model, ['f0'])
+                splits_pop_list.append((err_f_on_x_f_hat - err_f_on_x_f).item())
+
+        f_hat_ne_f_err_list.append(sum(f_hat_ne_f_err_split_list) / len(f_hat_ne_f_err_split_list))
+        f_hat_ne_f_err_var_list.append(sum([(f_hat_ne_f_err_val - f_hat_ne_f_err_list[-1]) ** 2 for f_hat_ne_f_err_val in f_hat_ne_f_err_list]) / len(f_hat_ne_f_err_list))
+        pop_list.append(sum(splits_pop_list) / len(splits_pop_list))
+        pop_var_list.append(sum([(pop_val - pop_list[-1])**2 for pop_val in pop_list]) / len(pop_list))
+    # example: sum((val - mean) ** 2 for val in data_to_return[key_list_name]) / len(data_to_return[key_list_name])
+    # mean_err_f_f_hardt = sum(err_f_on_x_f_list) / len(err_f_on_x_f_list)
+    # err_f_hardt_f_f_hardt_var = sum([(err_f_on_x_f - mean_err_f_f_hardt)**2 for err_f_on_x_f in mean_err_f_f_hardt]) / len(mean_err_f_f_hardt)
+    # err_f_f_hardt = [mean_err_f_f_hardt for _ in m_list]
+    # var_err_f_f_hardt = [err_f_hardt_f_f_hardt_var for _ in m_list]
+
+    data_graph_path = os.path.join(m_exp_path, 'm_graph_data.json')
+    with open(data_graph_path, 'w+') as f:
+        data = dict()
+        data['f_hat_ne_f_err_list'] = f_hat_ne_f_err_list
+        data['f_hat_ne_f_err_var_list'] = f_hat_ne_f_err_var_list
+        data['pop_list'] = pop_list
+        data['pop_var_list'] = pop_var_list
+        json.dump(data, f, indent=4)
+
+    saving_path = os.path.join(m_exp_path, 'm_graph.png')
+    plot_graph(title='err vs m', x_label='m', y_label='err', x_data_list=[m_list, m_list],
+               y_data_list=[f_hat_ne_f_err_list, pop_list], saving_path=saving_path,
+               graph_label_list=[r'$E[1\{f(x) \neq \^{f}\}]$', 'POP'], var_lists=[f_hat_ne_f_err_list, pop_var_list], SE=True, num_samples=num_splits*repeat_on_same_model_exp)
 
 
 
+m_exp()
