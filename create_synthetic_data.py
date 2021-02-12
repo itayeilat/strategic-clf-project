@@ -127,8 +127,7 @@ def generate_dataset(feature_list, trained_model, fake_data_set_size=10000,
 
 
 def apply_transform_creditgrade_loan_returned(credit_grade):
-    loan_tresh = 4  # if we say that any number that is lower than 3 get -1 loan returned that means 36.68% didn't
-                    # return like in the reality.. but if we say lower than 4 we get 58.297% and it much more balanced
+    loan_tresh = 4
     return 1 if credit_grade >= loan_tresh else -1
 
 
